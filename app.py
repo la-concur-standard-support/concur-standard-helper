@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()  # これで .env 内のキーが os.environ に取り込まれる
+
 import streamlit as st
 from pinecone import Pinecone as PineconeClient, ServerlessSpec
 from langchain_community.embeddings import OpenAIEmbeddings
