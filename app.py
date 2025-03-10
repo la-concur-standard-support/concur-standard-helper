@@ -1,54 +1,42 @@
 import os
 import streamlit as st
-# .envを読み込む
 from dotenv import load_dotenv
+
+# langchain-openai / langchain-pinecone / langchain_community
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import Pinecone
+from langchain_community.llms import OpenAI
+from langchain.chains import ConversationalRetrievalChain
+
+# .env から環境変数を読み込み
 load_dotenv()
 
-# 新しいPineconeパッケージ
-from pinecone import Pinecone as PineconeClient
-
-# LangChain 新方式: communityパッケージ
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.chains import ConversationalRetrievalChain
-from langchain_community.llms import OpenAI
-from langchain_community.vectorstores import Pinecone
-
-# ここで .env に書かれた環境変数を読み出す
+# .env に書いてあるキーを取得
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
+
 INDEX_NAME = "concur-index"
-NAMESPACE = "demo-html"
+NAMESPACE  = "demo-html"
 
 def main():
     st.title("Concur Helper - RAG Chatbot")
 
-    # Pinecone の新方式: PineconeClient() でインスタンス化
-    # environment に “us-east-1-aws” などを指定
-    # project_name が必要な場合は `project_name=...` を付けてください
-    pc = PineconeClient(
-        api_key=PINECONE_API_KEY,
-        environment=PINECONE_ENVIRONMENT
-        # project_name="..."
-    )
+    # Embeddings (langchain-openai)
+    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # Embeddings
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
-
-    # VectorStore (Pinecone)
-    # pinecone_client=pc を渡す
+    # VectorStore (langchain-pinecone)
+    # Pinecone(...) に直接 APIキーや環境を指定する
     docsearch = Pinecone(
-        embeddings,
-        pinecone_client=pc,
+        embedding=embeddings,
+        api_key=PINECONE_API_KEY,
+        environment=PINECONE_ENVIRONMENT,
         index_name=INDEX_NAME,
         namespace=NAMESPACE
     )
 
-    # LLM (OpenAI via langchain_community.llms)
-    llm = OpenAI(
-        openai_api_key=openai_key,
-        temperature=0
-    )
+    # LLM (langchain_community.llms)
+    llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
 
     # ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
@@ -57,7 +45,7 @@ def main():
         return_source_documents=True
     )
 
-    # 会話履歴を保持
+    # 会話履歴の管理
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
@@ -73,13 +61,11 @@ def main():
         st.write("### 回答")
         st.write(answer)
 
-        # 参照されたメタデータの表示
         if "source_documents" in result:
             st.write("#### 参照したチャンク:")
             for doc in result["source_documents"]:
                 st.write(f"- {doc.metadata}")
 
-        # 履歴を更新
         st.session_state["history"].append((query, answer))
 
 if __name__ == "__main__":
