@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # .envファイルの内容をos.environ に反映
+
 import os
 from pinecone import Pinecone as PineconeClient, ServerlessSpec
 from langchain_community.embeddings import OpenAIEmbeddings
