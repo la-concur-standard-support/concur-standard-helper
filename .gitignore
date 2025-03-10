@@ -1,0 +1,18 @@
+# Python関連
+__pycache__/
+*.pyc
+*.pyo
+
+# venv or Anaconda環境
+venv/
+*.egg-info/
+
+# IDE設定
+.vscode/
+.idea/
+
+# OSファイル
+.DS_Store
+
+# Secrets
+.env
