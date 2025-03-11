@@ -1,9 +1,10 @@
+streamlit
 openai
 langchain
-streamlit
 langchain-openai
 langchain-pinecone
 langchain-community
 python-dotenv
-pinecone-client==5.0.1
 
+# Pinecone v5系に固定。5.4.x が使えない場合は 5.0.1 など別の5系を試す。
+pinecone-client==5.0.1
