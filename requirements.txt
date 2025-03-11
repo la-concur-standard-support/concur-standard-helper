@@ -5,6 +5,4 @@ langchain-openai
 langchain-pinecone
 langchain-community
 python-dotenv
-
-# pinecone-client を v5.4.2 に固定
 pinecone-client==5.4.2
