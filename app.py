@@ -2,8 +2,8 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-# ★ v5 系の書き方
-import pinecone
+# Pinecone v6 新方式
+from pinecone import Pinecone, ServerlessSpec
 
 # langchain-pinecone と langchain-openai の利用
 from langchain_openai import OpenAIEmbeddings
@@ -15,34 +15,37 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
 def main():
-    st.title("Concur Helper - RAG Chatbot (Pinecone v5)")
+    st.title("Concur Helper - RAG Chatbot")
 
-    # 1. pinecone.init(...) を使う（v5 ではこちらが主流）
-    pinecone.init(
+    # 1. 新しい Pinecone クラスのインスタンスを作る (init() の代わり)
+    pc = Pinecone(
         api_key=PINECONE_API_KEY,
+        # environment / project_name が必要なら指定
         environment=PINECONE_ENVIRONMENT
+        # project_name="xxx" などがあれば追記
     )
 
-    # 2. 既存インデックスを取得
-    my_index = pinecone.Index(INDEX_NAME)
+    # 2. インデックスを取得
+    # すでに作成済みなので create_index() は不要
+    my_index = pc.Index(INDEX_NAME)
 
-    # 3. Embeddings
+    # 3. Embeddings (langchain-openai)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 4. PineconeVectorStore
+    # 4. PineconeVectorStore で VectorStore を生成 (langchain-pinecone)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
         namespace=NAMESPACE
     )
 
-    # 5. LLM
+    # 5. LLM (langchain_community.llms)
     llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
 
     # 6. ConversationalRetrievalChain
@@ -52,9 +55,11 @@ def main():
         return_source_documents=True
     )
 
+    # 7. 会話履歴管理
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
+    # 8. ユーザー入力
     query = st.text_input("質問を入力してください:")
 
     if query:
