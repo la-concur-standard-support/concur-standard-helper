@@ -1,6 +1,4 @@
-import os
 import streamlit as st
-from dotenv import load_dotenv
 
 # Pinecone v6 新方式
 from pinecone import Pinecone, ServerlessSpec
@@ -11,11 +9,15 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_community.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
 
-load_dotenv()
+# ストリームリットの Secrets からキーを取得
+def get_openai_api_key():
+    return st.secrets["OPENAI_API_KEY"]  # Streamlit Cloud のSecretsで定義
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
+def get_pinecone_api_key():
+    return st.secrets["PINECONE_API_KEY"]
+
+def get_pinecone_environment():
+    return st.secrets.get("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
@@ -23,22 +25,19 @@ NAMESPACE  = "demo-html"
 def main():
     st.title("Concur Helper - RAG Chatbot")
 
-    # 1. 新しい Pinecone クラスのインスタンスを作る (init() の代わり)
+    # 1. Pineconeクラスを使った初期化 (init() は使わない)
     pc = Pinecone(
-        api_key=PINECONE_API_KEY,
-        # environment / project_name が必要なら指定
-        environment=PINECONE_ENVIRONMENT
-        # project_name="xxx" などがあれば追記
+        api_key=get_pinecone_api_key(),
+        environment=get_pinecone_environment()
     )
 
-    # 2. インデックスを取得
-    # すでに作成済みなので create_index() は不要
+    # 2. 既存インデックスを参照 (作成済みなので create_index は不要)
     my_index = pc.Index(INDEX_NAME)
 
     # 3. Embeddings (langchain-openai)
-    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+    embeddings = OpenAIEmbeddings(api_key=get_openai_api_key())
 
-    # 4. PineconeVectorStore で VectorStore を生成 (langchain-pinecone)
+    # 4. PineconeVectorStore (langchain-pinecone)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
@@ -46,7 +45,7 @@ def main():
     )
 
     # 5. LLM (langchain_community.llms)
-    llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
+    llm = OpenAI(api_key=get_openai_api_key(), temperature=0)
 
     # 6. ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
