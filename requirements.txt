@@ -5,4 +5,5 @@ langchain-openai
 langchain-pinecone
 langchain-community
 python-dotenv
-pinecone-client==5.4.2
+pinecone-client==5.0.1
+
