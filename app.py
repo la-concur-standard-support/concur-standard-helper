@@ -1,7 +1,9 @@
+import os
 import streamlit as st
+from dotenv import load_dotenv
 
-# Pinecone v6 新方式
-from pinecone import Pinecone, ServerlessSpec
+# ★ v5 系の書き方
+import pinecone
 
 # langchain-pinecone と langchain-openai の利用
 from langchain_openai import OpenAIEmbeddings
@@ -9,43 +11,39 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_community.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
 
-# ストリームリットの Secrets からキーを取得
-def get_openai_api_key():
-    return st.secrets["OPENAI_API_KEY"]  # Streamlit Cloud のSecretsで定義
+load_dotenv()
 
-def get_pinecone_api_key():
-    return st.secrets["PINECONE_API_KEY"]
-
-def get_pinecone_environment():
-    return st.secrets.get("PINECONE_ENVIRONMENT", "us-east-1-aws")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")
 
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
 def main():
-    st.title("Concur Helper - RAG Chatbot")
+    st.title("Concur Helper - RAG Chatbot (Pinecone v5)")
 
-    # 1. Pineconeクラスを使った初期化 (init() は使わない)
-    pc = Pinecone(
-        api_key=get_pinecone_api_key(),
-        environment=get_pinecone_environment()
+    # 1. pinecone.init(...) を使う（v5 ではこちらが主流）
+    pinecone.init(
+        api_key=PINECONE_API_KEY,
+        environment=PINECONE_ENVIRONMENT
     )
 
-    # 2. 既存インデックスを参照 (作成済みなので create_index は不要)
-    my_index = pc.Index(INDEX_NAME)
+    # 2. 既存インデックスを取得
+    my_index = pinecone.Index(INDEX_NAME)
 
-    # 3. Embeddings (langchain-openai)
-    embeddings = OpenAIEmbeddings(api_key=get_openai_api_key())
+    # 3. Embeddings
+    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 4. PineconeVectorStore (langchain-pinecone)
+    # 4. PineconeVectorStore
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
         namespace=NAMESPACE
     )
 
-    # 5. LLM (langchain_community.llms)
-    llm = OpenAI(api_key=get_openai_api_key(), temperature=0)
+    # 5. LLM
+    llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
 
     # 6. ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
@@ -54,11 +52,9 @@ def main():
         return_source_documents=True
     )
 
-    # 7. 会話履歴管理
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # 8. ユーザー入力
     query = st.text_input("質問を入力してください:")
 
     if query:
