@@ -3,7 +3,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 # Pinecone v6 新方式
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 
 # langchain-pinecone と langchain-openai の利用
 from langchain_openai import OpenAIEmbeddings
@@ -23,29 +23,26 @@ NAMESPACE  = "demo-html"
 def main():
     st.title("Concur Helper - RAG Chatbot")
 
-    # 1. 新しい Pinecone クラスのインスタンスを作る (init() の代わり)
+    # 1. Pineconeクラスのインスタンス
     pc = Pinecone(
         api_key=PINECONE_API_KEY,
-        # environment / project_name が必要なら指定
         environment=PINECONE_ENVIRONMENT
-        # project_name="xxx" などがあれば追記
     )
 
     # 2. インデックスを取得
-    # すでに作成済みなので create_index() は不要
     my_index = pc.Index(INDEX_NAME)
 
-    # 3. Embeddings (langchain-openai)
+    # 3. Embeddings
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 4. PineconeVectorStore で VectorStore を生成 (langchain-pinecone)
+    # 4. VectorStore
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
         namespace=NAMESPACE
     )
 
-    # 5. LLM (langchain_community.llms)
+    # 5. LLM
     llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
 
     # 6. ConversationalRetrievalChain
@@ -68,14 +65,36 @@ def main():
             "chat_history": st.session_state["history"]
         })
         answer = result["answer"]
+
+        # --- 回答を表示 ---
         st.write("### 回答")
         st.write(answer)
 
+        # --- ソースドキュメントのメタデータ表示 ---
         if "source_documents" in result:
-            st.write("#### 参照したチャンク:")
-            for doc in result["source_documents"]:
-                st.write(f"- {doc.metadata}")
+            st.write("### 参照した設定ガイド:")
 
+            for doc in result["source_documents"]:
+                meta = doc.metadata
+                # 表示したい項目だけ取り出す
+                doc_name       = meta.get("DocName", "")
+                guide_name_jp  = meta.get("GuideNameJp", "")
+                section_title1 = meta.get("SectionTitle1", "")
+                section_title2 = meta.get("SectionTitle2", "")
+                full_link      = meta.get("FullLink", "")
+
+                # メタデータが無いチャンクはスキップ
+                if not doc_name and not full_link:
+                    continue
+
+                # 見出し表示
+                st.markdown(f"- **DocName**: {doc_name}")
+                st.markdown(f"  **GuideNameJp**: {guide_name_jp}")
+                st.markdown(f"  **SectionTitle1**: {section_title1}")
+                st.markdown(f"  **SectionTitle2**: {section_title2}")
+                st.markdown(f"  **FullLink**: {full_link}\n")
+
+        # 9. 会話履歴を更新
         st.session_state["history"].append((query, answer))
 
 if __name__ == "__main__":
