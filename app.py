@@ -6,17 +6,11 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 
 # langchain
-# Embeddings
 from langchain_openai import OpenAIEmbeddings
-# VectorStore (pinecone)
 from langchain_pinecone import PineconeVectorStore
-
-# ChatGPT-4 model
-from langchain.chat_models import ChatOpenAI  # requires a newer langchain
-# Conversational chain
+from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
-
 
 load_dotenv()
 
@@ -27,19 +21,17 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
-# --- カスタムプロンプト例 (不要なら省略可) ---
-CUSTOM_PROMPT_TEMPLATE = """あなたはConcur関連ドキュメントの専門家です。
-以下のドキュメント情報(検索結果)とユーザーの質問をもとに、ChatGPT-4の高度な応答力を活かし、簡潔かつ的確に回答してください。
-
-答えが不明な場合は「わかりません」と述べてください。
-不要な前置きや重複表現は避け、要点のみをわかりやすく書いてください。
+# --- カスタムプロンプト (不要なら省略OK) ---
+CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
+以下のドキュメント情報とユーザーの質問を踏まえ、GPT-4モデルとして、簡潔で正確な回答をしてください。
+不要な繰り返しを避け、要点のみを示してください。答えが不明なら「わかりません」と述べてください。
 
 ドキュメント情報:
 {context}
 
 ユーザーの質問: {question}
 
-最適な回答をお願いします。
+最適な回答:
 """
 custom_prompt = PromptTemplate(
     template=CUSTOM_PROMPT_TEMPLATE,
@@ -50,7 +42,7 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper - RAG Chatbot (GPT-4)")
 
-    # 1. Pineconeクラスのインスタンス
+    # 1. Pinecone インスタンス
     pc = Pinecone(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENVIRONMENT
@@ -62,11 +54,12 @@ def main():
     # 3. Embeddings
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 4. VectorStore
+    # 4. VectorStore (★ text_key="chunk_text" を指定 ★)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
-        namespace=NAMESPACE
+        namespace=NAMESPACE,
+        text_key="chunk_text"   # これで doc.page_content = chunk_text となり、他は metadata に入る
     )
 
     # 5. ChatGPT-4 モデル
@@ -76,7 +69,7 @@ def main():
         temperature=0
     )
 
-    # 6. ConversationalRetrievalChain (カスタムプロンプト適用)
+    # 6. ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
@@ -107,7 +100,6 @@ def main():
         # --- ソースドキュメントのメタデータ表示 ---
         if "source_documents" in result:
             st.write("### 参照した設定ガイド:")
-
             for doc in result["source_documents"]:
                 meta = doc.metadata
                 doc_name       = meta.get("DocName", "")
