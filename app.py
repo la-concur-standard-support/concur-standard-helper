@@ -5,12 +5,18 @@ from dotenv import load_dotenv
 # Pinecone v6
 from pinecone import Pinecone
 
-# langchain-pinecone, langchain-openai
+# langchain
+# Embeddings
 from langchain_openai import OpenAIEmbeddings
+# VectorStore (pinecone)
 from langchain_pinecone import PineconeVectorStore
-from langchain_community.llms import OpenAI
+
+# ChatGPT-4 model
+from langchain.chat_models import ChatOpenAI  # requires a newer langchain
+# Conversational chain
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+
 
 load_dotenv()
 
@@ -21,18 +27,19 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
-# カスタムプロンプトテンプレート
-CUSTOM_PROMPT_TEMPLATE = """あなたはConcurに関するドキュメントの専門家です。
-以下の前提(検索結果)とユーザーからの質問を踏まえ、要点のみわかりやすく回答してください。
-不要な重複や「Context:」のような文言は含めないでください。
-答えが不明な場合は「わかりません」と答えてください。
+# --- カスタムプロンプト例 (不要なら省略可) ---
+CUSTOM_PROMPT_TEMPLATE = """あなたはConcur関連ドキュメントの専門家です。
+以下のドキュメント情報(検索結果)とユーザーの質問をもとに、ChatGPT-4の高度な応答力を活かし、簡潔かつ的確に回答してください。
 
-前提(検索結果):
+答えが不明な場合は「わかりません」と述べてください。
+不要な前置きや重複表現は避け、要点のみをわかりやすく書いてください。
+
+ドキュメント情報:
 {context}
 
 ユーザーの質問: {question}
 
-最適な回答:
+最適な回答をお願いします。
 """
 custom_prompt = PromptTemplate(
     template=CUSTOM_PROMPT_TEMPLATE,
@@ -41,9 +48,9 @@ custom_prompt = PromptTemplate(
 
 
 def main():
-    st.title("Concur Helper - RAG Chatbot")
+    st.title("Concur Helper - RAG Chatbot (GPT-4)")
 
-    # 1. Pineconeインスタンス
+    # 1. Pineconeクラスのインスタンス
     pc = Pinecone(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENVIRONMENT
@@ -62,13 +69,16 @@ def main():
         namespace=NAMESPACE
     )
 
-    # 5. LLM
-    llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
+    # 5. ChatGPT-4 モデル
+    chat_llm = ChatOpenAI(
+        openai_api_key=OPENAI_API_KEY,
+        model_name="gpt-4",
+        temperature=0
+    )
 
-    # 6. ConversationalRetrievalChain
-    #    カスタムプロンプトを適用する
+    # 6. ConversationalRetrievalChain (カスタムプロンプト適用)
     qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
+        llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
         return_source_documents=True,
         combine_docs_chain_kwargs={
@@ -117,6 +127,7 @@ def main():
 
         # 9. 会話履歴を更新
         st.session_state["history"].append((query, answer))
+
 
 if __name__ == "__main__":
     main()
