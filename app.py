@@ -2,14 +2,15 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-# Pinecone v6 新方式
+# Pinecone v6
 from pinecone import Pinecone
 
-# langchain-pinecone と langchain-openai の利用
+# langchain-pinecone, langchain-openai
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_community.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
+from langchain.prompts import PromptTemplate
 
 load_dotenv()
 
@@ -20,10 +21,29 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
+# カスタムプロンプトテンプレート
+CUSTOM_PROMPT_TEMPLATE = """あなたはConcurに関するドキュメントの専門家です。
+以下の前提(検索結果)とユーザーからの質問を踏まえ、要点のみわかりやすく回答してください。
+不要な重複や「Context:」のような文言は含めないでください。
+答えが不明な場合は「わかりません」と答えてください。
+
+前提(検索結果):
+{context}
+
+ユーザーの質問: {question}
+
+最適な回答:
+"""
+custom_prompt = PromptTemplate(
+    template=CUSTOM_PROMPT_TEMPLATE,
+    input_variables=["context", "question"]
+)
+
+
 def main():
     st.title("Concur Helper - RAG Chatbot")
 
-    # 1. Pineconeクラスのインスタンス
+    # 1. Pineconeインスタンス
     pc = Pinecone(
         api_key=PINECONE_API_KEY,
         environment=PINECONE_ENVIRONMENT
@@ -46,10 +66,14 @@ def main():
     llm = OpenAI(api_key=OPENAI_API_KEY, temperature=0)
 
     # 6. ConversationalRetrievalChain
+    #    カスタムプロンプトを適用する
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
-        return_source_documents=True
+        return_source_documents=True,
+        combine_docs_chain_kwargs={
+            "prompt": custom_prompt
+        }
     )
 
     # 7. 会話履歴管理
@@ -76,18 +100,15 @@ def main():
 
             for doc in result["source_documents"]:
                 meta = doc.metadata
-                # 表示したい項目だけ取り出す
                 doc_name       = meta.get("DocName", "")
                 guide_name_jp  = meta.get("GuideNameJp", "")
                 section_title1 = meta.get("SectionTitle1", "")
                 section_title2 = meta.get("SectionTitle2", "")
                 full_link      = meta.get("FullLink", "")
 
-                # メタデータが無いチャンクはスキップ
                 if not doc_name and not full_link:
                     continue
 
-                # 見出し表示
                 st.markdown(f"- **DocName**: {doc_name}")
                 st.markdown(f"  **GuideNameJp**: {guide_name_jp}")
                 st.markdown(f"  **SectionTitle1**: {section_title1}")
