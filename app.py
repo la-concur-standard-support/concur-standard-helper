@@ -47,11 +47,19 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # 1) Pinecone 初期化
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []  # 表示用履歴
+
+    if "history" not in st.session_state:
+        st.session_state["history"] = []       # ConversationalRetrievalChain用の履歴
+
+    if "pending_input" not in st.session_state:
+        st.session_state["pending_input"] = None
+
+    # 1) Pinecone & VectorStore
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
 
-    # 2) Embeddings & VectorStore
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
@@ -60,14 +68,12 @@ def main():
         text_key="chunk_text"
     )
 
-    # 3) ChatGPT-4モデル
+    # 2) LLM & Chain
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
-
-    # 4) ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
@@ -77,29 +83,55 @@ def main():
         }
     )
 
-    # --- 履歴 (Chain用) ---
-    if "history" not in st.session_state:
-        st.session_state["history"] = []
+    # ------------------------------------------------
+    # Step A: 前回の入力があればチェーン呼び出し
+    # ------------------------------------------------
+    if st.session_state["pending_input"]:
+        user_text = st.session_state["pending_input"]
+        st.session_state["pending_input"] = None  # 消す
 
-    # --- 表示用チャット履歴 ---
-    if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []
+        # LangChain呼び出し
+        with st.spinner("回答を生成中..."):
+            result = qa_chain({
+                "question": user_text,
+                "chat_history": st.session_state["history"]
+            })
 
-    # ★ 1) これまでのQ&Aを表示
+        answer = result["answer"]
+
+        # ソースドキュメントの情報
+        source_info = []
+        if "source_documents" in result:
+            for doc in result["source_documents"]:
+                source_info.append(doc.metadata)
+
+        # ConversationalRetrievalChain の履歴にも追加
+        st.session_state["history"].append((user_text, answer))
+
+        # 表示用チャット履歴に追加
+        st.session_state["chat_messages"].append({
+            "user": user_text,
+            "assistant": answer,
+            "sources": source_info
+        })
+
+    # ------------------------------------------------
+    # Step B: メッセージ一覧を上部に表示
+    # ------------------------------------------------
+    st.markdown("---")
+    st.subheader("これまでの会話")
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
         srcs   = chat_item["sources"]
 
-        # ユーザー発話
+        # ユーザーの発話
         with st.chat_message("user"):
             st.write(user_q)
 
-        # アシスタント発話
+        # アシスタントの発話
         with st.chat_message("assistant"):
             st.write(ai_a)
-
-            # 参照ドキュメント表示
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -115,49 +147,18 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # ★ 2) ユーザー入力 (text_input + 送信ボタン)
-    user_input = st.text_input("何か質問はありますか？", "")
+    # ------------------------------------------------
+    # Step C: 入力欄をページ下部に配置
+    # ------------------------------------------------
+    st.markdown("---")
+    new_input = st.text_input("新しい質問を入力してください", "")
+
     if st.button("送信"):
-        if user_input.strip():
-            with st.spinner("回答を生成中..."):
-                result = qa_chain({
-                    "question": user_input,
-                    "chat_history": st.session_state["history"]
-                })
-            answer = result["answer"]
-
-            # ソースドキュメント情報
-            source_info = []
-            if "source_documents" in result:
-                for doc in result["source_documents"]:
-                    source_info.append(doc.metadata)
-
-            # ★ 3) 今回の回答を即時表示
-            with st.chat_message("assistant"):
-                st.write(answer)
-                # 参照ドキュメントも一緒に出す
-                if source_info:
-                    st.write("##### 参照した設定ガイド:")
-                    for meta in source_info:
-                        doc_name = meta.get("DocName", "")
-                        guide_jp = meta.get("GuideNameJp", "")
-                        sec1     = meta.get("SectionTitle1", "")
-                        sec2     = meta.get("SectionTitle2", "")
-                        link     = meta.get("FullLink", "")
-
-                        st.markdown(f"- **DocName**: {doc_name}")
-                        st.markdown(f"  **GuideNameJp**: {guide_jp}")
-                        st.markdown(f"  **SectionTitle1**: {sec1}")
-                        st.markdown(f"  **SectionTitle2**: {sec2}")
-                        st.markdown(f"  **FullLink**: {link}")
-
-            # ★ 4) 会話履歴にも追加 (再描画時に一覧表示される)
-            st.session_state["history"].append((user_input, answer))
-            st.session_state["chat_messages"].append({
-                "user": user_input,
-                "assistant": answer,
-                "sources": source_info
-            })
+        # 次の再実行でチェーンを呼ぶために session_state に保存
+        st.session_state["pending_input"] = new_input
+        # すぐに再実行
+        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
+
