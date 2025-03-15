@@ -12,6 +12,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
+
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -21,7 +22,7 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
-# --- カスタムプロンプト (不要なら省略OK) ---
+
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
 ChatGPT-4モデルとして詳しくかつ分かりやすい回答を行ってください。
@@ -45,22 +46,16 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
+
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # 1. Pinecone インスタンス
-    pc = Pinecone(
-        api_key=PINECONE_API_KEY,
-        environment=PINECONE_ENVIRONMENT
-    )
-
-    # 2. インデックスを取得
+    # Pinecone 初期化
+    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
 
-    # 3. Embeddings
+    # Embeddings & VectorStore
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
-
-    # 4. VectorStore (★ text_key="chunk_text" を指定 ★)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
         index=my_index,
@@ -68,14 +63,14 @@ def main():
         text_key="chunk_text"
     )
 
-    # 5. ChatGPT-4 モデル
+    # ChatGPT-4モデル
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
 
-    # 6. ConversationalRetrievalChain
+    # ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
@@ -85,74 +80,72 @@ def main():
         }
     )
 
-    # ★ 会話履歴(Chain用)
-    #    ConversationalRetrievalChainは (human_message, ai_message) のタプルのリストを期待
+    # 履歴管理 (Chain用)
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # ★ 表示用のチャットメッセージ履歴
-    #    辞書 { "user": 質問, "assistant": 回答, "sources": 参照情報 } を持つリスト
+    # 表示用チャット履歴
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # 7. ユーザーの質問入力
-    query = st.text_input("質問を入力してください:")
-
-    if st.button("送信"):
-        if query.strip():
-            # 7-1) QAチェーンの実行
-            result = qa_chain({
-                "question": query,
-                "chat_history": st.session_state["history"]  # 前回までの会話を渡す
-            })
-            answer = result["answer"]
-
-            # 7-2) ソースドキュメントのメタデータをリスト化
-            source_info = []
-            if "source_documents" in result:
-                for doc in result["source_documents"]:
-                    source_info.append(doc.metadata)  # ここでは metadata のみ保存
-
-            # 7-3) 会話履歴を更新 (Chain用: (ユーザー発話, AI回答) のタプル)
-            st.session_state["history"].append((query, answer))
-
-            # 7-4) 表示用のチャットメッセージ履歴を追加
-            st.session_state["chat_messages"].append({
-                "user": query,
-                "assistant": answer,
-                "sources": source_info
-            })
-
-    # 8. これまでの会話をチャット形式で表示
-    #    (Streamlit 1.23+ の st.chat_message を使用)
+    # 1) これまでのやり取りを表示 (上に積み上がる)
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
         srcs   = chat_item["sources"]
 
-        # ユーザーのメッセージ
         with st.chat_message("user"):
             st.write(user_q)
 
-        # アシスタントのメッセージ
         with st.chat_message("assistant"):
             st.write(ai_a)
 
-            # 参照したドキュメント情報を表示 (お好みで省略可)
+            # 参照情報を表示したい場合
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
-                    doc_name       = meta.get("DocName", "")
-                    guide_name_jp  = meta.get("GuideNameJp", "")
-                    sec1           = meta.get("SectionTitle1", "")
-                    sec2           = meta.get("SectionTitle2", "")
-                    full_link      = meta.get("FullLink", "")
+                    doc_name = meta.get("DocName", "")
+                    guide_jp = meta.get("GuideNameJp", "")
+                    sec1     = meta.get("SectionTitle1", "")
+                    sec2     = meta.get("SectionTitle2", "")
+                    link     = meta.get("FullLink", "")
 
                     st.markdown(f"- **DocName**: {doc_name}")
-                    st.markdown(f"  **GuideNameJp**: {guide_name_jp}")
+                    st.markdown(f"  **GuideNameJp**: {guide_jp}")
                     st.markdown(f"  **SectionTitle1**: {sec1}")
                     st.markdown(f"  **SectionTitle2**: {sec2}")
-                    st.markdown(f"  **FullLink**: {full_link}\n")
+                    st.markdown(f"  **FullLink**: {link}")
+
+    # 2) 下部の入力欄で質問を受け付け (Streamlit 1.26+)
+    user_input = st.chat_input("何か質問はありますか？")
+    if user_input:
+        # QAチェーンに問い合わせ
+        result = qa_chain({
+            "question": user_input,
+            "chat_history": st.session_state["history"]
+        })
+        answer = result["answer"]
+
+        # ソースドキュメントの情報
+        source_info = []
+        if "source_documents" in result:
+            for doc in result["source_documents"]:
+                source_info.append(doc.metadata)
+
+        # ConversationalRetrievalChain 用の履歴更新
+        st.session_state["history"].append((user_input, answer))
+
+        # 表示用履歴も更新
+        st.session_state["chat_messages"].append({
+            "user": user_input,
+            "assistant": answer,
+            "sources": source_info
+        })
+
+        # ページを再描画し、入力分が即時に表示されるように
+        st.experimental_rerun()
+
 
 if __name__ == "__main__":
     main()
+
