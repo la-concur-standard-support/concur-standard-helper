@@ -44,6 +44,7 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
+
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
@@ -85,7 +86,7 @@ def main():
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # 過去のやり取りを表示
+    # ◆ 過去のやり取りを表示
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
@@ -97,7 +98,7 @@ def main():
         with st.chat_message("assistant"):
             st.write(ai_a)
 
-            # 参照ドキュメント
+            # 参照ドキュメント情報
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -113,34 +114,37 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # 下部の入力欄 (Streamlit 1.26以降)
-    user_input = st.chat_input("何か質問はありますか？")
+    # ◆ 質問入力（text_input + 送信ボタン）
+    user_input = st.text_input("何か質問はありますか？", "")
+    if st.button("送信"):
+        # 入力が空でなければ処理
+        if user_input.strip():
+            # QAチェーンを呼び出す
+            result = qa_chain({
+                "question": user_input,
+                "chat_history": st.session_state["history"]
+            })
+            answer = result["answer"]
 
-    if user_input:
-        # QAチェーン呼び出し
-        result = qa_chain({
-            "question": user_input,
-            "chat_history": st.session_state["history"]
-        })
-        answer = result["answer"]
+            # ソースドキュメント情報
+            source_info = []
+            if "source_documents" in result:
+                for doc in result["source_documents"]:
+                    source_info.append(doc.metadata)
 
-        # ソースドキュメント情報
-        source_info = []
-        if "source_documents" in result:
-            for doc in result["source_documents"]:
-                source_info.append(doc.metadata)
+            # ConversationalRetrievalChain用の履歴を更新
+            st.session_state["history"].append((user_input, answer))
 
-        # ConversationalRetrievalChain用 履歴更新
-        st.session_state["history"].append((user_input, answer))
+            # 表示用履歴を更新
+            st.session_state["chat_messages"].append({
+                "user": user_input,
+                "assistant": answer,
+                "sources": source_info
+            })
 
-        # 表示用履歴に追加
-        st.session_state["chat_messages"].append({
-            "user": user_input,
-            "assistant": answer,
-            "sources": source_info
-        })
+            # ここで画面を再描画したい場合は実行終了時に自動で再描画される
+            # or st.experimental_rerun() を使えるバージョンなら呼んでもOK
 
-        # ※ ここで st.experimental_rerun() は呼ばない
 
 if __name__ == "__main__":
     main()
