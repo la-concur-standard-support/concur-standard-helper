@@ -78,7 +78,7 @@ def main():
         }
     )
 
-    # 会話履歴 (Chain用)
+    # 履歴 (Chain用)
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
@@ -86,7 +86,7 @@ def main():
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # ◆ 過去のやり取りを表示
+    # 1) 過去のやり取りを表示
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
@@ -98,7 +98,6 @@ def main():
         with st.chat_message("assistant"):
             st.write(ai_a)
 
-            # 参照ドキュメント情報
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -114,37 +113,36 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # ◆ 質問入力（text_input + 送信ボタン）
+    # 2) 入力欄 + 送信ボタン
     user_input = st.text_input("何か質問はありますか？", "")
     if st.button("送信"):
-        # 入力が空でなければ処理
         if user_input.strip():
-            # QAチェーンを呼び出す
-            result = qa_chain({
-                "question": user_input,
-                "chat_history": st.session_state["history"]
-            })
+            # ★ スピナーで「回答を生成中...」を表示
+            with st.spinner("回答を生成中..."):
+                result = qa_chain({
+                    "question": user_input,
+                    "chat_history": st.session_state["history"]
+                })
+            # スピナーのブロックを抜けると処理完了
+
             answer = result["answer"]
 
-            # ソースドキュメント情報
             source_info = []
             if "source_documents" in result:
                 for doc in result["source_documents"]:
                     source_info.append(doc.metadata)
 
-            # ConversationalRetrievalChain用の履歴を更新
+            # ConversationalRetrievalChain 用の履歴更新
             st.session_state["history"].append((user_input, answer))
 
-            # 表示用履歴を更新
+            # 表示用のチャット履歴に追加
             st.session_state["chat_messages"].append({
                 "user": user_input,
                 "assistant": answer,
                 "sources": source_info
             })
 
-            # ここで画面を再描画したい場合は実行終了時に自動で再描画される
-            # or st.experimental_rerun() を使えるバージョンなら呼んでもOK
-
+            # 処理が終わると再描画され、新しい回答が即時に表示される
 
 if __name__ == "__main__":
     main()
