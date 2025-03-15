@@ -47,13 +47,15 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # ▼ 初期化
+    # --- 初期化 ---
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []  # 表示用の会話履歴
     if "history" not in st.session_state:
-        st.session_state["history"] = []       # ConversationalRetrievalChain用
+        st.session_state["history"] = []       # ConversationalRetrievalChain用の履歴
+    if "input_text" not in st.session_state:
+        st.session_state["input_text"] = ""    # 入力欄の内容を保持
 
-    # ▼ Pinecone, VectorStore
+    # --- Pinecone & VectorStore ---
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
@@ -64,7 +66,7 @@ def main():
         text_key="chunk_text"
     )
 
-    # ▼ ChatGPTモデル & Chain
+    # --- ChatGPT-4 & Chain ---
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
@@ -79,69 +81,77 @@ def main():
         }
     )
 
-    # -----------------------------
-    # レイアウト: 上に"chat_placeholder"、下に"input_container"
-    # -----------------------------
-    chat_placeholder = st.empty()    # 会話履歴を表示する領域 (上)
-    with st.container():             # 入力欄 (下)
-        user_input = st.text_input("新しい質問を入力してください", "")
-        if st.button("送信"):
-            if user_input.strip():
-                # 1) LangChain呼び出し
-                with st.spinner("回答を生成中..."):
-                    result = qa_chain({
-                        "question": user_input,
-                        "chat_history": st.session_state["history"]
-                    })
-                answer = result["answer"]
+    # --- 上部: これまでの会話を表示 ---
+    st.subheader("これまでの会話")
+    for chat_item in st.session_state["chat_messages"]:
+        user_q = chat_item["user"]
+        ai_a   = chat_item["assistant"]
+        srcs   = chat_item["sources"]
 
-                # ソース情報
-                source_info = []
-                if "source_documents" in result:
-                    for doc in result["source_documents"]:
-                        source_info.append(doc.metadata)
+        # ユーザー発話
+        with st.chat_message("user"):
+            st.write(user_q)
 
-                # 2) ConversationalRetrievalChainの履歴に追加
-                st.session_state["history"].append((user_input, answer))
+        # アシスタント発話
+        with st.chat_message("assistant"):
+            st.write(ai_a)
+            if srcs:
+                st.write("##### 参照した設定ガイド:")
+                for meta in srcs:
+                    doc_name = meta.get("DocName", "")
+                    guide_jp = meta.get("GuideNameJp", "")
+                    sec1     = meta.get("SectionTitle1", "")
+                    sec2     = meta.get("SectionTitle2", "")
+                    link     = meta.get("FullLink", "")
 
-                # 3) 表示用履歴に追加
-                st.session_state["chat_messages"].append({
-                    "user": user_input,
-                    "assistant": answer,
-                    "sources": source_info
+                    st.markdown(f"- **DocName**: {doc_name}")
+                    st.markdown(f"  **GuideNameJp**: {guide_jp}")
+                    st.markdown(f"  **SectionTitle1**: {sec1}")
+                    st.markdown(f"  **SectionTitle2**: {sec2}")
+                    st.markdown(f"  **FullLink**: {link}")
+
+    st.markdown("---")
+
+    # --- 下部: 入力欄 + 送信ボタン ---
+    #     value=st.session_state["input_text"] を使うと
+    #     直前に設定した文字列がデフォルトとして表示される
+    user_input = st.text_input("新しい質問を入力してください", 
+                               value=st.session_state["input_text"], 
+                               key="input_field")
+
+    # ボタンを押したら同じ実行サイクル内でQA呼び出し
+    if st.button("送信"):
+        trimmed_input = user_input.strip()
+        if trimmed_input:
+            with st.spinner("回答を生成中..."):
+                result = qa_chain({
+                    "question": trimmed_input,
+                    "chat_history": st.session_state["history"]
                 })
 
-    # -----------------------------
-    # 同じ実行サイクルで最新履歴を上部に描画
-    # -----------------------------
-    with chat_placeholder.container():
-        st.subheader("=== 会話履歴 ===")
-        for chat_item in st.session_state["chat_messages"]:
-            user_q = chat_item["user"]
-            ai_a   = chat_item["assistant"]
-            srcs   = chat_item["sources"]
+            answer = result["answer"]
 
-            # ユーザー発話
-            with st.chat_message("user"):
-                st.write(user_q)
+            # 参照ドキュメント
+            source_info = []
+            if "source_documents" in result:
+                for doc in result["source_documents"]:
+                    source_info.append(doc.metadata)
 
-            # アシスタント発話
-            with st.chat_message("assistant"):
-                st.write(ai_a)
-                if srcs:
-                    st.write("##### 参照した設定ガイド:")
-                    for meta in srcs:
-                        doc_name = meta.get("DocName", "")
-                        guide_jp = meta.get("GuideNameJp", "")
-                        sec1     = meta.get("SectionTitle1", "")
-                        sec2     = meta.get("SectionTitle2", "")
-                        link     = meta.get("FullLink", "")
+            # ConversationalRetrievalChain用に履歴更新
+            st.session_state["history"].append((trimmed_input, answer))
 
-                        st.markdown(f"- **DocName**: {doc_name}")
-                        st.markdown(f"  **GuideNameJp**: {guide_jp}")
-                        st.markdown(f"  **SectionTitle1**: {sec1}")
-                        st.markdown(f"  **SectionTitle2**: {sec2}")
-                        st.markdown(f"  **FullLink**: {link}")
+            # 表示用メッセージの末尾に追加
+            st.session_state["chat_messages"].append({
+                "user": trimmed_input,
+                "assistant": answer,
+                "sources": source_info
+            })
+
+            # 入力欄をクリア
+            st.session_state["input_text"] = ""
+
+            # そのまま同じサイクルで再描画され、最新メッセージが上部に表示
+            # 次回ループ(再実行)では text_input のデフォルト値が空に
 
 if __name__ == "__main__":
     main()
