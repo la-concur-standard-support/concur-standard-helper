@@ -47,13 +47,19 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # ▼ 初期化
+    # --- 初期化 ---
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []  # 表示用の会話履歴
     if "history" not in st.session_state:
-        st.session_state["history"] = []       # ConversationalRetrievalChain用
+        st.session_state["history"] = []       # ConversationalRetrievalChain用の履歴
 
-    # ▼ Pinecone, VectorStore
+    # 「回答中かどうか」を管理するフラグ
+    # True なら「スピナーのみ」「履歴は表示しない」
+    # False なら「履歴を表示」
+    if "generating" not in st.session_state:
+        st.session_state["generating"] = False
+
+    # --- Pinecone & VectorStore ---
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
@@ -64,7 +70,7 @@ def main():
         text_key="chunk_text"
     )
 
-    # ▼ ChatGPTモデル & Chain
+    # --- ChatGPT-4 & Chain ---
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
@@ -79,53 +85,56 @@ def main():
         }
     )
 
-    # -----------------------------
-    # レイアウト: 上に"chat_placeholder"、下に"input_container"
-    # -----------------------------
-    chat_placeholder = st.empty()    # 会話履歴を表示する領域 (上)
-    with st.container():             # 入力欄 (下)
-        user_input = st.text_input("新しい質問を入力してください", "")
-        if st.button("送信"):
-            if user_input.strip():
-                # 1) LangChain呼び出し
-                with st.spinner("回答を生成中..."):
-                    result = qa_chain({
-                        "question": user_input,
-                        "chat_history": st.session_state["history"]
-                    })
-                answer = result["answer"]
+    # --- 入力欄 ---
+    user_input = st.text_input("新しい質問を入力してください", "")
 
-                # ソース情報
-                source_info = []
-                if "source_documents" in result:
-                    for doc in result["source_documents"]:
-                        source_info.append(doc.metadata)
+    # 送信ボタン
+    if st.button("送信"):
+        if user_input.strip():
+            # ボタン押下で「回答中フラグ」を立てる (同一サイクル内で再描画)
+            st.session_state["generating"] = True
 
-                # 2) ConversationalRetrievalChainの履歴に追加
-                st.session_state["history"].append((user_input, answer))
-
-                # 3) 表示用履歴に追加
-                st.session_state["chat_messages"].append({
-                    "user": user_input,
-                    "assistant": answer,
-                    "sources": source_info
+            with st.spinner("回答を生成中..."):
+                result = qa_chain({
+                    "question": user_input,
+                    "chat_history": st.session_state["history"]
                 })
 
-    # -----------------------------
-    # 同じ実行サイクルで最新履歴を上部に描画
-    # -----------------------------
-    with chat_placeholder.container():
-        st.subheader("=== 会話履歴 ===")
+            answer = result["answer"]
+
+            # 参照ドキュメント
+            source_info = []
+            if "source_documents" in result:
+                for doc in result["source_documents"]:
+                    source_info.append(doc.metadata)
+
+            # 履歴に追加
+            st.session_state["history"].append((user_input, answer))
+            st.session_state["chat_messages"].append({
+                "user": user_input,
+                "assistant": answer,
+                "sources": source_info
+            })
+
+            # 処理完了したのでフラグを戻す
+            st.session_state["generating"] = False
+
+    # 「回答中」状態かどうかで分岐
+    if st.session_state["generating"]:
+        # ▼▼▼ 回答中 ⇒ 履歴は表示せず スピナーのみ
+        st.write("回答を生成中... (しばらくお待ちください)")
+        st.stop()  # ここで処理を終了し、「履歴を表示するコード」をスキップ
+    else:
+        # ▼▼▼ 回答が完了 ⇒ 履歴を表示
+        st.subheader("これまでの会話")
         for chat_item in st.session_state["chat_messages"]:
             user_q = chat_item["user"]
             ai_a   = chat_item["assistant"]
             srcs   = chat_item["sources"]
 
-            # ユーザー発話
             with st.chat_message("user"):
                 st.write(user_q)
 
-            # アシスタント発話
             with st.chat_message("assistant"):
                 st.write(ai_a)
                 if srcs:
