@@ -45,7 +45,6 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
@@ -66,7 +65,7 @@ def main():
         embedding=embeddings,
         index=my_index,
         namespace=NAMESPACE,
-        text_key="chunk_text"   # これで doc.page_content = chunk_text となり、他は metadata に入る
+        text_key="chunk_text"
     )
 
     # 5. ChatGPT-4 モデル
@@ -86,47 +85,74 @@ def main():
         }
     )
 
-    # 7. 会話履歴管理
+    # ★ 会話履歴(Chain用)
+    #    ConversationalRetrievalChainは (human_message, ai_message) のタプルのリストを期待
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # 8. ユーザー入力
+    # ★ 表示用のチャットメッセージ履歴
+    #    辞書 { "user": 質問, "assistant": 回答, "sources": 参照情報 } を持つリスト
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+
+    # 7. ユーザーの質問入力
     query = st.text_input("質問を入力してください:")
 
-    if query:
-        result = qa_chain({
-            "question": query,
-            "chat_history": st.session_state["history"]
-        })
-        answer = result["answer"]
+    if st.button("送信"):
+        if query.strip():
+            # 7-1) QAチェーンの実行
+            result = qa_chain({
+                "question": query,
+                "chat_history": st.session_state["history"]  # 前回までの会話を渡す
+            })
+            answer = result["answer"]
 
-        # --- 回答を表示 ---
-        st.write("### 回答")
-        st.write(answer)
+            # 7-2) ソースドキュメントのメタデータをリスト化
+            source_info = []
+            if "source_documents" in result:
+                for doc in result["source_documents"]:
+                    source_info.append(doc.metadata)  # ここでは metadata のみ保存
 
-        # --- ソースドキュメントのメタデータ表示 ---
-        if "source_documents" in result:
-            st.write("### 参照した設定ガイド:")
-            for doc in result["source_documents"]:
-                meta = doc.metadata
-                doc_name       = meta.get("DocName", "")
-                guide_name_jp  = meta.get("GuideNameJp", "")
-                section_title1 = meta.get("SectionTitle1", "")
-                section_title2 = meta.get("SectionTitle2", "")
-                full_link      = meta.get("FullLink", "")
+            # 7-3) 会話履歴を更新 (Chain用: (ユーザー発話, AI回答) のタプル)
+            st.session_state["history"].append((query, answer))
 
-                if not doc_name and not full_link:
-                    continue
+            # 7-4) 表示用のチャットメッセージ履歴を追加
+            st.session_state["chat_messages"].append({
+                "user": query,
+                "assistant": answer,
+                "sources": source_info
+            })
 
-                st.markdown(f"- **DocName**: {doc_name}")
-                st.markdown(f"  **GuideNameJp**: {guide_name_jp}")
-                st.markdown(f"  **SectionTitle1**: {section_title1}")
-                st.markdown(f"  **SectionTitle2**: {section_title2}")
-                st.markdown(f"  **FullLink**: {full_link}\n")
+    # 8. これまでの会話をチャット形式で表示
+    #    (Streamlit 1.23+ の st.chat_message を使用)
+    for chat_item in st.session_state["chat_messages"]:
+        user_q = chat_item["user"]
+        ai_a   = chat_item["assistant"]
+        srcs   = chat_item["sources"]
 
-        # 9. 会話履歴を更新
-        st.session_state["history"].append((query, answer))
+        # ユーザーのメッセージ
+        with st.chat_message("user"):
+            st.write(user_q)
 
+        # アシスタントのメッセージ
+        with st.chat_message("assistant"):
+            st.write(ai_a)
+
+            # 参照したドキュメント情報を表示 (お好みで省略可)
+            if srcs:
+                st.write("##### 参照した設定ガイド:")
+                for meta in srcs:
+                    doc_name       = meta.get("DocName", "")
+                    guide_name_jp  = meta.get("GuideNameJp", "")
+                    sec1           = meta.get("SectionTitle1", "")
+                    sec2           = meta.get("SectionTitle2", "")
+                    full_link      = meta.get("FullLink", "")
+
+                    st.markdown(f"- **DocName**: {doc_name}")
+                    st.markdown(f"  **GuideNameJp**: {guide_name_jp}")
+                    st.markdown(f"  **SectionTitle1**: {sec1}")
+                    st.markdown(f"  **SectionTitle2**: {sec2}")
+                    st.markdown(f"  **FullLink**: {full_link}\n")
 
 if __name__ == "__main__":
     main()
