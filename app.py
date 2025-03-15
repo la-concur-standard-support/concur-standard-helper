@@ -77,26 +77,29 @@ def main():
         }
     )
 
-    # 5) 履歴 (Chain用)
+    # --- 履歴 (Chain用) ---
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # 6) 表示用チャット履歴
+    # --- 表示用チャット履歴 ---
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # ◆ 過去のやり取りを表示
+    # ★ 1) これまでのQ&Aを表示
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
         srcs   = chat_item["sources"]
 
+        # ユーザー発話
         with st.chat_message("user"):
             st.write(user_q)
 
+        # アシスタント発話
         with st.chat_message("assistant"):
             st.write(ai_a)
 
+            # 参照ドキュメント表示
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -112,39 +115,49 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # ◆ 質問入力（text_input + 送信ボタン）
+    # ★ 2) ユーザー入力 (text_input + 送信ボタン)
     user_input = st.text_input("何か質問はありますか？", "")
     if st.button("送信"):
         if user_input.strip():
-            # スピナー表示
             with st.spinner("回答を生成中..."):
                 result = qa_chain({
                     "question": user_input,
                     "chat_history": st.session_state["history"]
                 })
-
             answer = result["answer"]
 
+            # ソースドキュメント情報
             source_info = []
             if "source_documents" in result:
                 for doc in result["source_documents"]:
                     source_info.append(doc.metadata)
 
-            # ◆ ここで【即時表示】する
+            # ★ 3) 今回の回答を即時表示
             with st.chat_message("assistant"):
                 st.write(answer)
+                # 参照ドキュメントも一緒に出す
+                if source_info:
+                    st.write("##### 参照した設定ガイド:")
+                    for meta in source_info:
+                        doc_name = meta.get("DocName", "")
+                        guide_jp = meta.get("GuideNameJp", "")
+                        sec1     = meta.get("SectionTitle1", "")
+                        sec2     = meta.get("SectionTitle2", "")
+                        link     = meta.get("FullLink", "")
 
-            # ◆ さらに履歴にも追加
+                        st.markdown(f"- **DocName**: {doc_name}")
+                        st.markdown(f"  **GuideNameJp**: {guide_jp}")
+                        st.markdown(f"  **SectionTitle1**: {sec1}")
+                        st.markdown(f"  **SectionTitle2**: {sec2}")
+                        st.markdown(f"  **FullLink**: {link}")
+
+            # ★ 4) 会話履歴にも追加 (再描画時に一覧表示される)
             st.session_state["history"].append((user_input, answer))
-
             st.session_state["chat_messages"].append({
                 "user": user_input,
                 "assistant": answer,
                 "sources": source_info
             })
-
-            # これで再描画が行われ、以降のループで
-            # このメッセージが再度表示されるようになる
 
 if __name__ == "__main__":
     main()
