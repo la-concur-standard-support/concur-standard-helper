@@ -12,6 +12,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 
+
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -20,6 +21,7 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
+
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
@@ -48,7 +50,7 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # Pinecone
+    # Pinecone 初期化
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
 
@@ -78,7 +80,7 @@ def main():
         }
     )
 
-    # 会話履歴 (Chain用)
+    # 履歴管理 (Chain用)
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
@@ -86,7 +88,7 @@ def main():
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # 1) 過去のやり取りを表示
+    # 1) これまでのやり取りを表示 (上に積み上がる)
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
@@ -98,6 +100,7 @@ def main():
         with st.chat_message("assistant"):
             st.write(ai_a)
 
+            # 参照情報を表示したい場合
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -113,7 +116,7 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # 2) 画面最下部に入力欄 (1.26+)
+    # 2) 下部の入力欄で質問を受け付け (Streamlit 1.26+)
     user_input = st.chat_input("何か質問はありますか？")
     if user_input:
         # QAチェーンに問い合わせ
@@ -123,25 +126,26 @@ def main():
         })
         answer = result["answer"]
 
-        # ソースドキュメント情報
+        # ソースドキュメントの情報
         source_info = []
         if "source_documents" in result:
             for doc in result["source_documents"]:
                 source_info.append(doc.metadata)
 
-        # 履歴に追加 (Chain用)
+        # ConversationalRetrievalChain 用の履歴更新
         st.session_state["history"].append((user_input, answer))
 
-        # 表示用履歴に追加
+        # 表示用履歴も更新
         st.session_state["chat_messages"].append({
             "user": user_input,
             "assistant": answer,
             "sources": source_info
         })
 
-        # ※ここでは st.experimental_rerun() を呼ばない
-        #    chat_input が押されると自動リロードされるので、再実行で反映される
+        # ページを再描画し、入力分が即時に表示されるように
+        st.experimental_rerun()
 
 
 if __name__ == "__main__":
     main()
+
