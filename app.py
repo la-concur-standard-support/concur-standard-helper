@@ -44,15 +44,14 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # Pinecone 初期化
+    # 1) Pinecone 初期化
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
 
-    # Embeddings & VectorStore
+    # 2) Embeddings & VectorStore
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
@@ -61,14 +60,14 @@ def main():
         text_key="chunk_text"
     )
 
-    # ChatGPT-4モデル
+    # 3) ChatGPT-4モデル
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
 
-    # ConversationalRetrievalChain
+    # 4) ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
@@ -78,15 +77,15 @@ def main():
         }
     )
 
-    # 履歴 (Chain用)
+    # 5) 履歴 (Chain用)
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # 表示用チャット履歴
+    # 6) 表示用チャット履歴
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # 1) 過去のやり取りを表示
+    # ◆ 過去のやり取りを表示
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
@@ -113,17 +112,16 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # 2) 入力欄 + 送信ボタン
+    # ◆ 質問入力（text_input + 送信ボタン）
     user_input = st.text_input("何か質問はありますか？", "")
     if st.button("送信"):
         if user_input.strip():
-            # ★ スピナーで「回答を生成中...」を表示
+            # スピナー表示
             with st.spinner("回答を生成中..."):
                 result = qa_chain({
                     "question": user_input,
                     "chat_history": st.session_state["history"]
                 })
-            # スピナーのブロックを抜けると処理完了
 
             answer = result["answer"]
 
@@ -132,17 +130,21 @@ def main():
                 for doc in result["source_documents"]:
                     source_info.append(doc.metadata)
 
-            # ConversationalRetrievalChain 用の履歴更新
+            # ◆ ここで【即時表示】する
+            with st.chat_message("assistant"):
+                st.write(answer)
+
+            # ◆ さらに履歴にも追加
             st.session_state["history"].append((user_input, answer))
 
-            # 表示用のチャット履歴に追加
             st.session_state["chat_messages"].append({
                 "user": user_input,
                 "assistant": answer,
                 "sources": source_info
             })
 
-            # 処理が終わると再描画され、新しい回答が即時に表示される
+            # これで再描画が行われ、以降のループで
+            # このメッセージが再度表示されるようになる
 
 if __name__ == "__main__":
     main()
