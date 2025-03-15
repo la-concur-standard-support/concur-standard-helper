@@ -47,7 +47,7 @@ custom_prompt = PromptTemplate(
 
 
 def main():
-    st.title("Concur Helper - RAG Chatbot (GPT-4)")
+    st.title("Concur Helper ‐ 開発者支援ボット")
 
     # 1. Pinecone インスタンス
     pc = Pinecone(
