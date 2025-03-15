@@ -5,12 +5,20 @@ from dotenv import load_dotenv
 # Pinecone v6
 from pinecone import Pinecone
 
-# langchain
+# ========== LangChain関連 ==========
+# LangChain 0.2.0以降、chatモデルは 'langchain_community.chat_models' 推奨
+# すぐには必須でないので、今後のために修正例として記載。
+try:
+    from langchain_community.chat_models import ChatOpenAI
+except ImportError:
+    # もし langchain-community が未導入の場合は、古いimportを使う
+    from langchain.chat_models import ChatOpenAI
+
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
-from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+# ================================
 
 load_dotenv()
 
@@ -48,11 +56,14 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # Pinecone
-    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+    # 1) Pinecone
+    pc = Pinecone(
+        api_key=PINECONE_API_KEY,
+        environment=PINECONE_ENVIRONMENT
+    )
     my_index = pc.Index(INDEX_NAME)
 
-    # Embeddings & VectorStore
+    # 2) Embeddings & VectorStore
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
@@ -61,14 +72,14 @@ def main():
         text_key="chunk_text"
     )
 
-    # ChatGPT-4モデル
+    # 3) ChatGPTモデル (gpt-4)
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
 
-    # ConversationalRetrievalChain
+    # 4) ConversationalRetrievalChain
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=chat_llm,
         retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
@@ -78,26 +89,29 @@ def main():
         }
     )
 
-    # 会話履歴 (Chain用)
+    # 5) 会話履歴 (Chain用)
     if "history" not in st.session_state:
         st.session_state["history"] = []
 
-    # 表示用チャット履歴
+    # 6) 表示用チャット履歴
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
-    # 1) 過去のやり取りを表示
+    # 7) 過去のやり取りを表示
     for chat_item in st.session_state["chat_messages"]:
         user_q = chat_item["user"]
         ai_a   = chat_item["assistant"]
         srcs   = chat_item["sources"]
 
+        # ユーザー発話
         with st.chat_message("user"):
             st.write(user_q)
 
+        # AI発話
         with st.chat_message("assistant"):
             st.write(ai_a)
 
+            # 参照ドキュメント情報の表示(任意)
             if srcs:
                 st.write("##### 参照した設定ガイド:")
                 for meta in srcs:
@@ -113,10 +127,12 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
 
-    # 2) 画面最下部に入力欄 (1.26+)
+    # 8) 画面最下部の入力欄 (Streamlit 1.26+)
+    #    送信後、自動でリロードされるので、処理完了後に明示的な rerun は不要
     user_input = st.chat_input("何か質問はありますか？")
+
     if user_input:
-        # QAチェーンに問い合わせ
+        # チェーン呼び出し
         result = qa_chain({
             "question": user_input,
             "chat_history": st.session_state["history"]
@@ -129,7 +145,7 @@ def main():
             for doc in result["source_documents"]:
                 source_info.append(doc.metadata)
 
-        # 履歴に追加 (Chain用)
+        # LangChain用の履歴更新
         st.session_state["history"].append((user_input, answer))
 
         # 表示用履歴に追加
@@ -138,9 +154,7 @@ def main():
             "assistant": answer,
             "sources": source_info
         })
-
-        # ※ここでは st.experimental_rerun() を呼ばない
-        #    chat_input が押されると自動リロードされるので、再実行で反映される
+        # ここでは st.experimental_rerun() 不要
 
 
 if __name__ == "__main__":
