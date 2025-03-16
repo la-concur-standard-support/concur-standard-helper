@@ -1,8 +1,9 @@
 import os
+import json
 import streamlit as st
 from dotenv import load_dotenv
 
-# Pinecone v6
+# Pinecone v6 (旧バージョン or pinecone-client 2系など、環境に合わせて)
 from pinecone import Pinecone
 
 # langchain
@@ -11,6 +12,9 @@ from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+
+from datetime import datetime
+from io import StringIO
 
 load_dotenv()
 
@@ -47,11 +51,11 @@ custom_prompt = PromptTemplate(
 def main():
     st.title("Concur Helper ‐ 開発者支援ボット")
 
-    # ▼ 初期化
+    # セッション初期化
     if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []  # 表示用の会話履歴
+        st.session_state["chat_messages"] = []
     if "history" not in st.session_state:
-        st.session_state["history"] = []       # ConversationalRetrievalChain用
+        st.session_state["history"] = []
 
     # ▼ Pinecone, VectorStore
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
@@ -80,14 +84,53 @@ def main():
     )
 
     # -----------------------------
-    # レイアウト: 上に"chat_placeholder"、下に"input_container"
+    # 1) 履歴アップロード (復元)
     # -----------------------------
-    chat_placeholder = st.empty()    # 会話履歴を表示する領域 (上)
-    with st.container():             # 入力欄 (下)
+    st.sidebar.header("会話履歴の管理")
+    uploaded_file = st.sidebar.file_uploader("保存していた会話ファイルを選択 (.json)", type="json")
+    if uploaded_file is not None:
+        # JSONとして読み込んで復元
+        uploaded_content = uploaded_file.read()
+        try:
+            loaded_json = json.loads(uploaded_content)
+            # "chat_messages" と "history" を復元 (無ければ空に)
+            st.session_state["chat_messages"] = loaded_json.get("chat_messages", [])
+            st.session_state["history"] = loaded_json.get("history", [])
+            st.success("以前の会話履歴を復元しました！")
+        except Exception as e:
+            st.error(f"アップロードに失敗しました: {e}")
+
+    # -----------------------------
+    # 2) 履歴ダウンロードボタン
+    # -----------------------------
+    def download_chat_history():
+        # まとめて辞書化
+        data_to_save = {
+            "chat_messages": st.session_state["chat_messages"],
+            "history": st.session_state["history"]
+        }
+        return json.dumps(data_to_save, ensure_ascii=False, indent=2)
+
+    if st.sidebar.button("現在の会話を保存"):
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_name = f"chat_history_{now_str}.json"
+        json_data = download_chat_history()
+        st.sidebar.download_button(
+            label="ダウンロード (JSON)",
+            data=json_data,
+            file_name=file_name,
+            mime="application/json"
+        )
+
+    # -----------------------------
+    # メイン画面: チャットUI
+    # -----------------------------
+    chat_placeholder = st.empty()    # 会話履歴表示領域
+    with st.container():             # 入力欄
         user_input = st.text_input("新しい質問を入力してください", "")
         if st.button("送信"):
             if user_input.strip():
-                # 1) LangChain呼び出し
+                # LangChain呼び出し
                 with st.spinner("回答を生成中..."):
                     result = qa_chain({
                         "question": user_input,
@@ -101,10 +144,10 @@ def main():
                     for doc in result["source_documents"]:
                         source_info.append(doc.metadata)
 
-                # 2) ConversationalRetrievalChainの履歴に追加
+                # ConversationalRetrievalChainの履歴に追加
                 st.session_state["history"].append((user_input, answer))
 
-                # 3) 表示用履歴に追加
+                # 表示用の履歴に追加
                 st.session_state["chat_messages"].append({
                     "user": user_input,
                     "assistant": answer,
@@ -112,7 +155,7 @@ def main():
                 })
 
     # -----------------------------
-    # 同じ実行サイクルで最新履歴を上部に描画
+    # 会話履歴を上部に表示
     # -----------------------------
     with chat_placeholder.container():
         st.subheader("=== 会話履歴 ===")
