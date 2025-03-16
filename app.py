@@ -2,8 +2,8 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-# Pinecone (2.x.x)
-import pinecone
+# Pinecone v6
+from pinecone import Pinecone
 
 # langchain
 from langchain_openai import OpenAIEmbeddings
@@ -54,8 +54,8 @@ def main():
         st.session_state["history"] = []       # ConversationalRetrievalChain用
 
     # ▼ Pinecone, VectorStore
-    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-    my_index = pinecone.Index(INDEX_NAME)
+    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+    my_index = pc.Index(INDEX_NAME)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
     docsearch = PineconeVectorStore(
         embedding=embeddings,
