@@ -1,10 +1,12 @@
 import os
 import streamlit as st
-from dotenv import load_dotenv
 
+# ▼ 追加
+import streamlit_authenticator as stauth
+
+from dotenv import load_dotenv
 # Pinecone v6
 from pinecone import Pinecone
-
 # langchain
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
@@ -44,104 +46,128 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-def main():
-    st.title("Concur Helper ‐ 開発者支援ボット")
-
-    # ▼ 初期化
-    if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []  # 表示用の会話履歴
-    if "history" not in st.session_state:
-        st.session_state["history"] = []       # ConversationalRetrievalChain用
-
-    # ▼ Pinecone, VectorStore
-    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-    my_index = pc.Index(INDEX_NAME)
-    embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
-    docsearch = PineconeVectorStore(
-        embedding=embeddings,
-        index=my_index,
-        namespace=NAMESPACE,
-        text_key="chunk_text"
-    )
-
-    # ▼ ChatGPTモデル & Chain
-    chat_llm = ChatOpenAI(
-        openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4",
-        temperature=0
-    )
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=chat_llm,
-        retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
-        return_source_documents=True,
-        combine_docs_chain_kwargs={
-            "prompt": custom_prompt
+# ▼ 例: 認証用のデータ (開発・テスト用に直書き)
+credentials = {
+    "usernames": {
+        "demo_user": {
+            "email": "[email protected]",
+            "name": "Demo User",
+            "password": "$2b$12$N2V0...（生成したハッシュを貼る）"
+        },
+        "another_user": {
+            "email": "[email protected]",
+            "name": "Another User",
+            "password": "$2b$12$8GSe...（生成したハッシュを貼る）"
         }
-    )
+    }
+}
 
-    # -----------------------------
-    # レイアウト: 上に"chat_placeholder"、下に"input_container"
-    # -----------------------------
-    chat_placeholder = st.empty()    # 会話履歴を表示する領域 (上)
-    with st.container():             # 入力欄 (下)
-        user_input = st.text_input("新しい質問を入力してください", "")
-        if st.button("送信"):
-            if user_input.strip():
-                # 1) LangChain呼び出し
-                with st.spinner("回答を生成中..."):
-                    result = qa_chain({
-                        "question": user_input,
-                        "chat_history": st.session_state["history"]
+# ▼ 例: 認証オブジェクトを作成
+authenticator = stauth.Authenticate(
+    credentials,
+    "my_cookie_name",  # Cookieの名前（任意）
+    "my_signature_key",  # Cookie署名用の秘密鍵（任意の文字列）
+    cookie_expiry_days=30
+)
+
+def main():
+    # ▼ ログイン画面を表示
+    name, authentication_status, username = authenticator.login("Login", "main")
+
+    if authentication_status is False:
+        st.error("ユーザ名またはパスワードが間違っています")
+
+    if authentication_status is None:
+        st.warning("ユーザ名とパスワードを入力してください")
+
+    # --------------------------------------------
+    # 認証が成功したユーザーだけチャット画面を表示
+    # --------------------------------------------
+    if authentication_status:
+        st.title("Concur Helper ‐ 開発者支援ボット")
+        st.write(f"ようこそ {name} さん！")
+
+        # ▼ 以下、あなたの元々のコードを配置
+        if "chat_messages" not in st.session_state:
+            st.session_state["chat_messages"] = []
+        if "history" not in st.session_state:
+            st.session_state["history"] = []
+
+        pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+        my_index = pc.Index(INDEX_NAME)
+        embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+        docsearch = PineconeVectorStore(
+            embedding=embeddings,
+            index=my_index,
+            namespace=NAMESPACE,
+            text_key="chunk_text"
+        )
+
+        chat_llm = ChatOpenAI(
+            openai_api_key=OPENAI_API_KEY,
+            model_name="gpt-4",
+            temperature=0
+        )
+        qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=chat_llm,
+            retriever=docsearch.as_retriever(search_kwargs={"k": 3}),
+            return_source_documents=True,
+            combine_docs_chain_kwargs={
+                "prompt": custom_prompt
+            }
+        )
+
+        chat_placeholder = st.empty()
+        with st.container():
+            user_input = st.text_input("新しい質問を入力してください", "")
+            if st.button("送信"):
+                if user_input.strip():
+                    with st.spinner("回答を生成中..."):
+                        result = qa_chain({
+                            "question": user_input,
+                            "chat_history": st.session_state["history"]
+                        })
+                    answer = result["answer"]
+
+                    source_info = []
+                    if "source_documents" in result:
+                        for doc in result["source_documents"]:
+                            source_info.append(doc.metadata)
+
+                    st.session_state["history"].append((user_input, answer))
+
+                    st.session_state["chat_messages"].append({
+                        "user": user_input,
+                        "assistant": answer,
+                        "sources": source_info
                     })
-                answer = result["answer"]
 
-                # ソース情報
-                source_info = []
-                if "source_documents" in result:
-                    for doc in result["source_documents"]:
-                        source_info.append(doc.metadata)
+        with chat_placeholder.container():
+            st.subheader("=== 会話履歴 ===")
+            for chat_item in st.session_state["chat_messages"]:
+                user_q = chat_item["user"]
+                ai_a   = chat_item["assistant"]
+                srcs   = chat_item["sources"]
 
-                # 2) ConversationalRetrievalChainの履歴に追加
-                st.session_state["history"].append((user_input, answer))
+                with st.chat_message("user"):
+                    st.write(user_q)
 
-                # 3) 表示用履歴に追加
-                st.session_state["chat_messages"].append({
-                    "user": user_input,
-                    "assistant": answer,
-                    "sources": source_info
-                })
-
-    # -----------------------------
-    # 同じ実行サイクルで最新履歴を上部に描画
-    # -----------------------------
-    with chat_placeholder.container():
-        st.subheader("=== 会話履歴 ===")
-        for chat_item in st.session_state["chat_messages"]:
-            user_q = chat_item["user"]
-            ai_a   = chat_item["assistant"]
-            srcs   = chat_item["sources"]
-
-            # ユーザー発話
-            with st.chat_message("user"):
-                st.write(user_q)
-
-            # アシスタント発話
-            with st.chat_message("assistant"):
-                st.write(ai_a)
-                if srcs:
-                    st.write("##### 参照した設定ガイド:")
-                    for meta in srcs:
-                        doc_name = meta.get("DocName", "")
-                        guide_jp = meta.get("GuideNameJp", "")
-                        sec1     = meta.get("SectionTitle1", "")
-                        sec2     = meta.get("SectionTitle2", "")
-                        link     = meta.get("FullLink", "")
-
-                        st.markdown(f"- **DocName**: {doc_name}")
-                        st.markdown(f"  **GuideNameJp**: {guide_jp}")
-                        st.markdown(f"  **SectionTitle1**: {sec1}")
-                        st.markdown(f"  **SectionTitle2**: {sec2}")
-                        st.markdown(f"  **FullLink**: {link}")
+                with st.chat_message("assistant"):
+                    st.write(ai_a)
+                    if srcs:
+                        st.write("##### 参照した設定ガイド:")
+                        for meta in srcs:
+                            doc_name = meta.get("DocName", "")
+                            guide_jp = meta.get("GuideNameJp", "")
+                            sec1     = meta.get("SectionTitle1", "")
+                            sec2     = meta.get("SectionTitle2", "")
+                            link     = meta.get("FullLink", "")
+                            st.markdown(f"- **DocName**: {doc_name}")
+                            st.markdown(f"  **GuideNameJp**: {guide_jp}")
+                            st.markdown(f"  **SectionTitle1**: {sec1}")
+                            st.markdown(f"  **SectionTitle2**: {sec2}")
+                            st.markdown(f"  **FullLink**: {link}")
 
 if __name__ == "__main__":
     main()
+
