@@ -2,7 +2,7 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-# Pinecone v6
+# Pinecone (旧バージョン - 5.4.2)
 from pinecone import Pinecone
 
 # langchain
