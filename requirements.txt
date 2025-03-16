@@ -2,6 +2,7 @@ openai
 langchain
 pinecone==5.4.2
 streamlit
+streamlit-authenticator==0.1.5
 dotenv
 langchain_openai
 langchain_pinecone
