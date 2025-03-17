@@ -22,13 +22,16 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 INDEX_NAME = "concur-index"
 NAMESPACE  = "demo-html"
 
-# ワークフローに関連する4つのガイド
+# 「ワークフロー（概要）」を始めとする4つのガイド
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
     "ワークフロー（承認権限者）(2023年8月25日版)",
     "ワークフロー（原価対象の承認者)(2023年8月25日版)",
     "ワークフロー（メール通知）(2020年3月24日版)"
 ]
+
+# ワークフロー (概要) のURL
+WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#__RefHeading___Toc150956193"
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
@@ -62,9 +65,9 @@ def main():
     if "history" not in st.session_state:
         st.session_state["history"] = []
     if "focus_guide" not in st.session_state:
-        st.session_state["focus_guide"] = "なし"  # フォーカスするガイドなし
+        st.session_state["focus_guide"] = "なし"  # フォーカスするガイドが指定されていない状態
 
-    # ▼ Pinecone, VectorStore
+    # PineconeおよびVectorStore初期化
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     my_index = pc.Index(INDEX_NAME)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
@@ -75,9 +78,7 @@ def main():
         text_key="chunk_text"
     )
 
-    # ---------------------------------------------
-    # フォーカスするガイドを選択できるUI (sidebar)
-    # ---------------------------------------------
+    # サイドバー: ガイドフォーカス選択
     st.sidebar.header("ガイドのフォーカス")
     focus_guide_selected = st.sidebar.selectbox(
         "特定のガイド名にフォーカスする場合は選択してください:",
@@ -86,18 +87,13 @@ def main():
     )
     st.session_state["focus_guide"] = focus_guide_selected
 
-    # ---------------------------------------------
-    # 検索用の retriever を返す関数
-    # ---------------------------------------------
+    # 検索用 retriever を取得
     def get_filtered_retriever(query_text: str):
         """
-        質問文とユーザーのフォーカス設定に基づいて、
-        Pinecone の検索にフィルタをかけた retriever を返す。
+        ユーザーのフォーカス設定＆質問内容に応じてPineconeのメタデータフィルタを切り替える
         """
-
-        # 1) まずユーザーが特定ガイドをフォーカスしている場合
+        # 1) 特定ガイドにフォーカスしている場合
         if st.session_state["focus_guide"] != "なし":
-            # そのガイドだけに絞り込んだフィルタ
             focus_filter = {
                 "GuideNameJp": {
                     "$eq": st.session_state["focus_guide"]
@@ -108,8 +104,7 @@ def main():
                 "filter": focus_filter
             })
 
-        # 2) 質問文に「ワークフロー」という単語が入っていて、
-        #    かつ「仮払い」が含まれない場合は4つのワークフローガイドに絞り込む
+        # 2) "ワークフロー" を含み、かつ "仮払い" を含まない質問 → ワークフロー4ガイドに限定
         if ("ワークフロー" in query_text) and ("仮払い" not in query_text):
             wf_filter = {
                 "GuideNameJp": {
@@ -121,23 +116,32 @@ def main():
                 "filter": wf_filter
             })
 
-        # 上記以外はフィルタなしで全体検索
+        # それ以外 → 全体検索
         return docsearch.as_retriever(search_kwargs={"k": 3})
 
-    # チャットモデル
+    # ChatGPTモデル
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
 
-    # Chain は質問ごとに retriever を作り直すため、Chain自体は可変でOK
-    # もしくは最低限の設定だけしておき、retriever は動的に差し替え
+    # ポストプロセス: 回答に必ずワークフロー(概要)URLを含める
+    def post_process_answer(user_question: str, raw_answer: str) -> str:
+        """
+        ユーザーの質問に "ワークフロー" が含まれている場合は、
+        回答文に "Expense: ワークフロー (概要)" のURLを追加で挿入。
+        """
+        if "ワークフロー" in user_question:
+            # 万一、URLが既に含まれていなければ、末尾に参考リンクとして付与する
+            if WORKFLOW_OVERVIEW_URL not in raw_answer:
+                raw_answer += f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n{WORKFLOW_OVERVIEW_URL}"
+        return raw_answer
+
     def run_qa_chain(query_text: str, conversation_history):
-        # 質問に応じてフィルタリングしたretrieverを生成
+        # 質問に応じてフィルタリング
         my_retriever = get_filtered_retriever(query_text)
 
-        # ConversationalRetrievalChain 生成
         chain = ConversationalRetrievalChain.from_llm(
             llm=chat_llm,
             retriever=my_retriever,
@@ -146,12 +150,19 @@ def main():
                 "prompt": custom_prompt
             }
         )
-        # 実行
         result = chain({
             "question": query_text,
             "chat_history": conversation_history
         })
-        return result
+
+        # ポストプロセスでワークフロー(概要)のURLを確実に回答に含める
+        final_answer = post_process_answer(query_text, result["answer"])
+
+        # source_documentsはそのまま返す
+        return {
+            "answer": final_answer,
+            "source_documents": result.get("source_documents", [])
+        }
 
     # -----------------------------
     # 1) 履歴アップロード (復元)
@@ -209,18 +220,15 @@ def main():
             if user_input.strip():
                 with st.spinner("回答を生成中..."):
                     result = run_qa_chain(user_input, st.session_state["history"])
-                answer = result["answer"]
 
-                # ソース情報
+                answer = result["answer"]
                 source_info = []
                 if "source_documents" in result:
                     for doc in result["source_documents"]:
                         source_info.append(doc.metadata)
 
-                # 履歴に追加 (タプル形式)
+                # 履歴に追加
                 st.session_state["history"].append((user_input, answer))
-
-                # 表示用の履歴に追加
                 st.session_state["chat_messages"].append({
                     "user": user_input,
                     "assistant": answer,
@@ -228,7 +236,7 @@ def main():
                 })
 
     # -----------------------------
-    # 会話履歴を表示
+    # 会話履歴表示
     # -----------------------------
     with chat_placeholder.container():
         st.subheader("=== 会話履歴 ===")
