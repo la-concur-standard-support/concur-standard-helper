@@ -29,7 +29,7 @@ WORKFLOW_GUIDES = [
     "ワークフロー（メール通知）(2020年3月24日版)"
 ]
 
-WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#__RefHeading___Toc150956193"
+WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
