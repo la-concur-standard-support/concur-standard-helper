@@ -96,6 +96,19 @@ def main():
             # "chat_messages" と "history" を復元 (無ければ空に)
             st.session_state["chat_messages"] = loaded_json.get("chat_messages", [])
             st.session_state["history"] = loaded_json.get("history", [])
+
+            # === ここで "history" をタプル化する処理を挟む ===
+            new_history = []
+            for item in st.session_state["history"]:
+                # もしリスト形式で [user_text, ai_text] を持っている場合 → タプルへ
+                if isinstance(item, list) and len(item) == 2:
+                    new_history.append(tuple(item))
+                else:
+                    # すでにタプルか、フォーマット不明の場合はそのまま
+                    new_history.append(item)
+
+            st.session_state["history"] = new_history
+
             st.success("以前の会話履歴を復元しました！")
         except Exception as e:
             st.error(f"アップロードに失敗しました: {e}")
@@ -145,9 +158,10 @@ def main():
                         source_info.append(doc.metadata)
 
                 # ConversationalRetrievalChainの履歴に追加
+                # ここはタプル (ユーザ発話, AI回答) で管理
                 st.session_state["history"].append((user_input, answer))
 
-                # 表示用の履歴に追加
+                # 表示用の履歴に追加（辞書形式）
                 st.session_state["chat_messages"].append({
                     "user": user_input,
                     "assistant": answer,
