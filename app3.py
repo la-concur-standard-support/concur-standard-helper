@@ -20,7 +20,7 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 INDEX_NAME = "concur-index"
-NAMESPACE  = "demo-html"
+NAMESPACE = "demo-html"
 
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
@@ -77,13 +77,20 @@ def main():
     )
 
     # -----------------------------
-    # サイドバー: 設定ガイドのリスト表示用ボタン
+    # サイドバー: 「設定ガイドのリスト」ボタン (HTML+リンク)
     # -----------------------------
     st.sidebar.header("設定ガイドのリスト")
-    if st.sidebar.button("標準ガイドリスト"):
-        # 別タブでリストページを開く (JavaScriptで実行)
-        js = "window.open('https://koji276.github.io/concur-docs/index.htm','_blank')"
-        st.sidebar.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
+    # Markdown＋HTMLを使って、ボタン風の見た目に
+    st.sidebar.markdown(
+        """
+        <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
+            <button style="font-size: 1rem; padding: 0.5em 1em; color: black;">
+                標準ガイドリスト
+            </button>
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
 
     # -----------------------------
     # サイドバー: ガイドのフォーカス
@@ -144,7 +151,7 @@ def main():
     # 検索ロジック
     # -----------------------------
     def get_filtered_retriever(query_text: str):
-        """ユーザーのフォーカス設定＆質問内容に応じてPineconeのメタデータフィルタを切り替える"""
+        # ユーザーのフォーカス設定＆質問内容に応じてPineconeのメタデータフィルタを切り替える
         # 1) 特定ガイドにフォーカス
         if st.session_state["focus_guide"] != "なし":
             focus_filter = {
@@ -169,10 +176,13 @@ def main():
     )
 
     def post_process_answer(user_question: str, raw_answer: str) -> str:
-        """ワークフロー関連の質問には必ずワークフロー(概要)のURLを追記"""
+        # ワークフロー関連の質問には必ずワークフロー(概要)のURLを追記
         if "ワークフロー" in user_question:
             if WORKFLOW_OVERVIEW_URL not in raw_answer:
-                raw_answer += f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n{WORKFLOW_OVERVIEW_URL}"
+                raw_answer += (
+                    f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n"
+                    f"{WORKFLOW_OVERVIEW_URL}"
+                )
         return raw_answer
 
     def run_qa_chain(query_text: str, conversation_history):
