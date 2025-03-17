@@ -20,7 +20,7 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 
 INDEX_NAME = "concur-index"
-NAMESPACE  = "demo-html"
+NAMESPACE = "demo-html"
 
 # 「ワークフロー（概要）」を始めとする4つのガイド
 WORKFLOW_GUIDES = [
@@ -78,8 +78,16 @@ def main():
         text_key="chunk_text"
     )
 
-    # サイドバー: ガイドフォーカス選択
+    # サイドバー: ガイドのフォーカス セクション
     st.sidebar.header("ガイドのフォーカス")
+
+    # 「標準ガイドリスト」を開くボタン
+    if st.sidebar.button("標準ガイドリスト"):
+        # JavaScriptを使って新しいタブでURLを開く
+        js = "window.open('https://koji276.github.io/concur-docs/index.htm','_blank')"
+        st.sidebar.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
+
+    # フォーカスガイド選択
     focus_guide_selected = st.sidebar.selectbox(
         "特定のガイド名にフォーカスする場合は選択してください:",
         options=["なし"] + WORKFLOW_GUIDES,
@@ -87,7 +95,6 @@ def main():
     )
     st.session_state["focus_guide"] = focus_guide_selected
 
-    # 検索用 retriever を取得
     def get_filtered_retriever(query_text: str):
         """
         ユーザーのフォーカス設定＆質問内容に応じてPineconeのメタデータフィルタを切り替える
@@ -119,29 +126,25 @@ def main():
         # それ以外 → 全体検索
         return docsearch.as_retriever(search_kwargs={"k": 3})
 
-    # ChatGPTモデル
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
         temperature=0
     )
 
-    # ポストプロセス: 回答に必ずワークフロー(概要)URLを含める
     def post_process_answer(user_question: str, raw_answer: str) -> str:
         """
         ユーザーの質問に "ワークフロー" が含まれている場合は、
         回答文に "Expense: ワークフロー (概要)" のURLを追加で挿入。
         """
         if "ワークフロー" in user_question:
-            # 万一、URLが既に含まれていなければ、末尾に参考リンクとして付与する
+            # URLが未含なら末尾に付与
             if WORKFLOW_OVERVIEW_URL not in raw_answer:
                 raw_answer += f"\n\nなお、ワークフローの全般情報については、以下のガイドもご参照ください:\n{WORKFLOW_OVERVIEW_URL}"
         return raw_answer
 
     def run_qa_chain(query_text: str, conversation_history):
-        # 質問に応じてフィルタリング
         my_retriever = get_filtered_retriever(query_text)
-
         chain = ConversationalRetrievalChain.from_llm(
             llm=chat_llm,
             retriever=my_retriever,
@@ -154,11 +157,7 @@ def main():
             "question": query_text,
             "chat_history": conversation_history
         })
-
-        # ポストプロセスでワークフロー(概要)のURLを確実に回答に含める
         final_answer = post_process_answer(query_text, result["answer"])
-
-        # source_documentsはそのまま返す
         return {
             "answer": final_answer,
             "source_documents": result.get("source_documents", [])
@@ -242,14 +241,12 @@ def main():
         st.subheader("=== 会話履歴 ===")
         for chat_item in st.session_state["chat_messages"]:
             user_q = chat_item["user"]
-            ai_a   = chat_item["assistant"]
-            srcs   = chat_item["sources"]
+            ai_a = chat_item["assistant"]
+            srcs = chat_item["sources"]
 
-            # ユーザー発話
             with st.chat_message("user"):
                 st.write(user_q)
 
-            # アシスタント発話
             with st.chat_message("assistant"):
                 st.write(ai_a)
                 if srcs:
@@ -257,9 +254,9 @@ def main():
                     for meta in srcs:
                         doc_name = meta.get("DocName", "")
                         guide_jp = meta.get("GuideNameJp", "")
-                        sec1     = meta.get("SectionTitle1", "")
-                        sec2     = meta.get("SectionTitle2", "")
-                        link     = meta.get("FullLink", "")
+                        sec1 = meta.get("SectionTitle1", "")
+                        sec2 = meta.get("SectionTitle2", "")
+                        link = meta.get("FullLink", "")
                         st.markdown(f"- **DocName**: {doc_name}")
                         st.markdown(f"  **GuideNameJp**: {guide_jp}")
                         st.markdown(f"  **SectionTitle1**: {sec1}")
