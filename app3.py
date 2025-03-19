@@ -29,7 +29,7 @@ WORKFLOW_GUIDES = [
     "ワークフロー（メール通知）(2020年3月24日版)"
 ]
 
-WORKFLOW_OVERVIEW_URL = "https://koji276.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
+WORKFLOW_OVERVIEW_URL = "https://la-concur-helper.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
@@ -83,7 +83,7 @@ def main():
     # Markdown＋HTMLを使って、ボタン風の見た目に
     st.sidebar.markdown(
         """
-        <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
+        <a href="https://la-concur-helper.github.io/concur-docs/index.htm" target="_blank">
             <button style="font-size: 1rem; padding: 0.5em 1em; color: black;">
                 標準ガイドリスト
             </button>
