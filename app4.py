@@ -111,7 +111,7 @@ def main():
     st.sidebar.header("設定ガイドのリスト")
     st.sidebar.markdown(
         """
-        <a href="https://koji276.github.io/concur-docs/index.htm" target="_blank">
+        <a href="https://la-concur-helper.github.io/concur-docs/index.htm" target="_blank">
             <button style="font-size: 1rem; padding: 0.5em 1em; color: black;">
                 標準ガイドリスト
             </button>
