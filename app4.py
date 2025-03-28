@@ -302,22 +302,22 @@ def main():
         st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、FAQ検索してください。")
 
         with st.form(key="faq_form"):
-            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100, key="faq_question_text"))
-            do_detail = st.form_submit_button("送信 (FAQ検索)")
-            if do_detail and detail_question.strip():
+            faq_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
+            do_faq = st.form_submit_button("送信 (FAQ検索)")
+            if do_faq and faq_question.strip():
                 with st.spinner("回答（FAQ）を作成中..."):
-                    detail_answer, detail_meta = run_detail_chain(detail_question)
+                    faq_answer, faq_meta = run_detail_chain(faq_question)
 
-                st.session_state["detail_history"].append({
-                    "question": detail_question,
-                    "answer": detail_answer,
-                    "meta": detail_meta
+                st.session_state["faq_history"].append({
+                    "question": faq_question,
+                    "answer": faq_answer,
+                    "meta": faq_meta
                 })
 
                 st.markdown("### 詳細な回答")
-                st.write(detail_answer)
+                st.write(faq_answer)
                 st.write("#### 参照すべき設定ガイド:")
-                for m in detail_meta:
+                for m in faq_meta:
                     doc_name   = m.get("DocName", "")
                     guide_name = m.get("GuideNameJp", "")
                     sec1       = m.get("SectionTitle1", "")
