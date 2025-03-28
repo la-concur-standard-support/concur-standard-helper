@@ -73,6 +73,8 @@ def main():
     # --------------------------------------------------
     # セッション初期化
     # --------------------------------------------------
+    if "faq_history" not in st.session_state:
+        st.session_state["faq_history"] = []
     if "summary_history" not in st.session_state:
         st.session_state["summary_history"] = []
     if "detail_history" not in st.session_state:
@@ -86,7 +88,7 @@ def main():
 
     # FAQインデックス
     faq_index = pc.Index(FAQ_INDEX_NAME)
-    docsearch_summary = PineconeVectorStore(
+    docsearch_faq = PineconeVectorStore(
         embedding=embeddings,
         index=faq_index,
         namespace=FAQ_NAMESPACE,
@@ -174,6 +176,13 @@ def main():
     # --------------------------------------------------
     # Retriever
     # --------------------------------------------------
+    def get_faq_retriever():
+        if focus_guide_selected != "なし":
+            filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
+            return docsearch_faq.as_retriever(search_kwargs={"k": 1, "filter": filter_conf})
+        else:
+            return docsearch_faq.as_retriever(search_kwargs={"k": 1})
+
     def get_summary_retriever():
         if focus_guide_selected != "なし":
             filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
@@ -200,6 +209,20 @@ def main():
     # --------------------------------------------------
     # チェーン実行
     # --------------------------------------------------
+    def run_faq_chain(query_text: str):
+        retriever = get_faq_retriever()
+        chain = ConversationalRetrievalChain.from_llm(
+            llm=chat_llm,
+            retriever=retriever,
+            return_source_documents=True,
+            combine_docs_chain_kwargs={"prompt": custom_prompt}
+        )
+        result = chain({"question": query_text, "chat_history": []})
+        answer = post_process_answer(query_text, result["answer"])
+        src_docs = result.get("source_documents", [])
+        meta_list = [d.metadata for d in src_docs]
+        return answer, meta_list
+    
     def run_summary_chain(query_text: str):
         retriever = get_summary_retriever()
         chain = ConversationalRetrievalChain.from_llm(
@@ -314,7 +337,7 @@ def main():
                     "meta": faq_meta
                 })
 
-                st.markdown("### 詳細な回答")
+                st.markdown("### 回答（FAQ）")
                 st.write(faq_answer)
                 st.write("#### 参照すべき設定ガイド:")
                 for m in faq_meta:
@@ -363,6 +386,30 @@ def main():
 
             st.subheader("=== 詳細のQ&A ===")
             for i, item in enumerate(st.session_state["detail_history"], start=1):
+                q = item["question"]
+                a = item["answer"]
+                meta_list = item.get("meta", [])
+
+                st.markdown(f"**Q{i}**: {q}")
+                st.markdown(f"**A{i}**: {a}")
+
+                if meta_list:
+                    st.write("#### 参照すべき設定ガイド:")
+                    for m in meta_list:
+                        doc_name   = m.get("DocName", "")
+                        guide_name = m.get("GuideNameJp", "")
+                        sec1       = m.get("SectionTitle1", "")
+                        sec2       = m.get("SectionTitle2", "")
+                        link       = m.get("FullLink", "")
+                        st.markdown(f"- **DocName**: {doc_name}")
+                        st.markdown(f"  **GuideNameJp**: {guide_name}")
+                        st.markdown(f"  **SectionTitle1**: {sec1}")
+                        st.markdown(f"  **SectionTitle2**: {sec2}")
+                        st.markdown(f"  **FullLink**: {link}")
+                st.write("---")
+
+            st.subheader("=== FAQのQ&A ===")
+            for i, item in enumerate(st.session_state["faq_history"], start=1):
                 q = item["question"]
                 a = item["answer"]
                 meta_list = item.get("meta", [])
