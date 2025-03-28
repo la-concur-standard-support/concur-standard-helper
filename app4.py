@@ -37,10 +37,10 @@ FULL_INDEX_NAME = "concur-index"
 FULL_NAMESPACE  = "demo-html"
 
 WORKFLOW_GUIDES = [
- "ワークフロー（概要）(2023年10月14日版)",
- "ワークフロー（承認権限者）(2023年8月25日版)",
- "ワークフロー（原価対象の承認者)(2023年8月25日版)",
- "ワークフロー（メール通知）(2020年3月24日版)"
+    "ワークフロー（概要）(2023年10月14日版)",
+    "ワークフロー（承認権限者）(2023年8月25日版)",
+    "ワークフロー（原価対象の承認者)(2023年8月25日版)",
+    "ワークフロー（メール通知）(2020年3月24日版)"
 ]
 WORKFLOW_OVERVIEW_URL = "https://la-concur-helper.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
 
@@ -73,12 +73,12 @@ def main():
     # --------------------------------------------------
     # セッション初期化
     # --------------------------------------------------
-    if "faq_history" not in st.session_state:
-        st.session_state["faq_history"] = []
     if "summary_history" not in st.session_state:
         st.session_state["summary_history"] = []
     if "detail_history" not in st.session_state:
         st.session_state["detail_history"] = []
+    if "faq_history" not in st.session_state:
+        st.session_state["faq_history"] = []
 
     # --------------------------------------------------
     # Pinecone 初期化 & VectorStore
@@ -94,8 +94,8 @@ def main():
         namespace=FAQ_NAMESPACE,
         text_key="chunk_text"
     )
- 
- # 要約インデックス
+
+    # 要約インデックス
     sum_index = pc.Index(SUMMARY_INDEX_NAME)
     docsearch_summary = PineconeVectorStore(
         embedding=embeddings,
@@ -151,6 +151,7 @@ def main():
             loaded_json = json.loads(uploaded_content)
             st.session_state["summary_history"] = loaded_json.get("summary_history", [])
             st.session_state["detail_history"]  = loaded_json.get("detail_history", [])
+            st.session_state["faq_history"]     = loaded_json.get("faq_history", [])
             st.success("以前の会話履歴を復元しました！")
         except Exception as e:
             st.error(f"アップロードに失敗しました: {e}")
@@ -158,7 +159,8 @@ def main():
     def download_chat_history():
         data_to_save = {
             "summary_history": st.session_state["summary_history"],
-            "detail_history": st.session_state["detail_history"]
+            "detail_history": st.session_state["detail_history"],
+            "faq_history": st.session_state["faq_history"]
         }
         return json.dumps(data_to_save, ensure_ascii=False, indent=2)
 
@@ -176,13 +178,6 @@ def main():
     # --------------------------------------------------
     # Retriever
     # --------------------------------------------------
-    def get_faq_retriever():
-        if focus_guide_selected != "なし":
-            filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
-            return docsearch_faq.as_retriever(search_kwargs={"k": 1, "filter": filter_conf})
-        else:
-            return docsearch_faq.as_retriever(search_kwargs={"k": 1})
-
     def get_summary_retriever():
         if focus_guide_selected != "なし":
             filter_conf = {"GuideNameJp": {"$eq": focus_guide_selected}}
@@ -198,6 +193,7 @@ def main():
             return docsearch_full.as_retriever(search_kwargs={"k": 5})
 
     def post_process_answer(user_question: str, raw_answer: str) -> str:
+        # ワークフローが質問文に含まれ、かつ仮払いが含まれていない場合のみガイドURLを追加
         if ("ワークフロー" in user_question) and ("仮払い" not in user_question):
             if WORKFLOW_OVERVIEW_URL not in raw_answer:
                 raw_answer += (
@@ -209,20 +205,6 @@ def main():
     # --------------------------------------------------
     # チェーン実行
     # --------------------------------------------------
-    def run_faq_chain(query_text: str):
-        retriever = get_faq_retriever()
-        chain = ConversationalRetrievalChain.from_llm(
-            llm=chat_llm,
-            retriever=retriever,
-            return_source_documents=True,
-            combine_docs_chain_kwargs={"prompt": custom_prompt}
-        )
-        result = chain({"question": query_text, "chat_history": []})
-        answer = post_process_answer(query_text, result["answer"])
-        src_docs = result.get("source_documents", [])
-        meta_list = [d.metadata for d in src_docs]
-        return answer, meta_list
-    
     def run_summary_chain(query_text: str):
         retriever = get_summary_retriever()
         chain = ConversationalRetrievalChain.from_llm(
@@ -251,14 +233,28 @@ def main():
         meta_list = [d.metadata for d in src_docs]
         return answer, meta_list
 
+    # FAQ用のチェーンを定義（FAQインデックスを参照）
+    def run_faq_chain(query_text: str):
+        # FAQはとりあえずフィルタなし(k=5)で検索する例
+        chain = ConversationalRetrievalChain.from_llm(
+            llm=chat_llm,
+            retriever=docsearch_faq.as_retriever(search_kwargs={"k": 5}),
+            return_source_documents=True,
+            combine_docs_chain_kwargs={"prompt": custom_prompt}
+        )
+        result = chain({"question": query_text, "chat_history": []})
+        answer = post_process_answer(query_text, result["answer"])
+        src_docs = result.get("source_documents", [])
+        meta_list = [d.metadata for d in src_docs]
+        return answer, meta_list
+
     # --------------------------------------------------
-    # 左右に分割: columns
+    # レイアウト: 左右2カラム
     # --------------------------------------------------
-    # 例: 左カラムの幅を 1、右カラムの幅を 1 とする (お好みで変更可)
     col_left, col_right = st.columns([1, 1])
 
     # -------------------------
-    # 左カラム: 入力フォームなど
+    # 左カラム
     # -------------------------
     with col_left:
         st.markdown("## Step1: 概要検索")
@@ -322,14 +318,14 @@ def main():
                 st.write("---")
 
         st.markdown("## Step3: FAQ検索")
-        st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、FAQ検索してください。")
+        st.info("FAQに関する回答を得るには、ここで検索してください。")
 
         with st.form(key="faq_form"):
-            faq_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
+            faq_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100, key="faq_question_text")
             do_faq = st.form_submit_button("送信 (FAQ検索)")
             if do_faq and faq_question.strip():
                 with st.spinner("回答（FAQ）を作成中..."):
-                    faq_answer, faq_meta = run_detail_chain(faq_question)
+                    faq_answer, faq_meta = run_faq_chain(faq_question)
 
                 st.session_state["faq_history"].append({
                     "question": faq_question,
@@ -337,7 +333,7 @@ def main():
                     "meta": faq_meta
                 })
 
-                st.markdown("### 回答（FAQ）")
+                st.markdown("### FAQの回答")
                 st.write(faq_answer)
                 st.write("#### 参照すべき設定ガイド:")
                 for m in faq_meta:
@@ -352,7 +348,7 @@ def main():
                     st.markdown(f"  **SectionTitle2**: {sec2}")
                     st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
-        
+
         st.markdown("## Step4: 設定ガイド検索")
         st.info("上記のリンク先をクリックすると、関連情報や開発設定画面などが参照できます。")
 
@@ -360,10 +356,11 @@ def main():
     # 右カラム: 会話履歴表示
     # -------------------------
     with col_right:
-        st.markdown("## 会話履歴（概要・詳細）")
+        st.markdown("## 会話履歴（概要・詳細・FAQ）")
         st.write("これまでのQ&Aの履歴")
 
         if st.checkbox("履歴を表示する"):
+            # === 概要のQ&A ===
             st.subheader("=== 概要のQ&A ===")
             for i, item in enumerate(st.session_state["summary_history"], start=1):
                 q = item["question"]
@@ -384,6 +381,7 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
+            # === 詳細のQ&A ===
             st.subheader("=== 詳細のQ&A ===")
             for i, item in enumerate(st.session_state["detail_history"], start=1):
                 q = item["question"]
@@ -408,6 +406,7 @@ def main():
                         st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
+            # === FAQのQ&A ===
             st.subheader("=== FAQのQ&A ===")
             for i, item in enumerate(st.session_state["faq_history"], start=1):
                 q = item["question"]
