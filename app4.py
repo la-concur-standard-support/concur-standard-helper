@@ -27,6 +27,9 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 # --------------------------------------------------
 # インデックス・ガイド設定
 # --------------------------------------------------
+FAQ_INDEX_NAME = "concur-index3"  
+FAQ_NAMESPACE  = "demo-html"
+
 SUMMARY_INDEX_NAME = "concur-index2"  
 SUMMARY_NAMESPACE  = "demo-html"
 
@@ -81,7 +84,16 @@ def main():
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-    # 要約インデックス
+    # FAQインデックス
+    faq_index = pc.Index(FAQ_INDEX_NAME)
+    docsearch_summary = PineconeVectorStore(
+        embedding=embeddings,
+        index=faq_index,
+        namespace=FAQ_NAMESPACE,
+        text_key="chunk_text"
+    )
+ 
+ # 要約インデックス
     sum_index = pc.Index(SUMMARY_INDEX_NAME)
     docsearch_summary = PineconeVectorStore(
         embedding=embeddings,
@@ -286,7 +298,39 @@ def main():
                     st.markdown(f"  **FullLink**: {link}")
                 st.write("---")
 
-        st.markdown("## Step3: 設定ガイド検索")
+        st.markdown("## Step3: FAQ検索")
+        st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、FAQ検索してください。")
+
+        with st.form(key="detail_form"):
+            detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
+            do_detail = st.form_submit_button("送信 (FAQ検索)")
+            if do_detail and detail_question.strip():
+                with st.spinner("回答（FAQ）を作成中..."):
+                    detail_answer, detail_meta = run_detail_chain(detail_question)
+
+                st.session_state["detail_history"].append({
+                    "question": detail_question,
+                    "answer": detail_answer,
+                    "meta": detail_meta
+                })
+
+                st.markdown("### 詳細な回答")
+                st.write(detail_answer)
+                st.write("#### 参照すべき設定ガイド:")
+                for m in detail_meta:
+                    doc_name   = m.get("DocName", "")
+                    guide_name = m.get("GuideNameJp", "")
+                    sec1       = m.get("SectionTitle1", "")
+                    sec2       = m.get("SectionTitle2", "")
+                    link       = m.get("FullLink", "")
+                    st.markdown(f"- **DocName**: {doc_name}")
+                    st.markdown(f"  **GuideNameJp**: {guide_name}")
+                    st.markdown(f"  **SectionTitle1**: {sec1}")
+                    st.markdown(f"  **SectionTitle2**: {sec2}")
+                    st.markdown(f"  **FullLink**: {link}")
+                st.write("---")
+        
+        st.markdown("## Step4: 設定ガイド検索")
         st.info("上記のリンク先をクリックすると、関連情報や開発設定画面などが参照できます。")
 
     # -------------------------
