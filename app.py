@@ -14,7 +14,6 @@ from langchain.prompts import PromptTemplate
 
 # --- ページをワイドに設定 ---
 st.set_page_config(layout="wide")
-
 load_dotenv()
 
 # --------------------------------------------------
@@ -67,47 +66,65 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
+# =============================
+# 【認証処理用】関数定義
+# =============================
 def get_tokens(auth_code: str):
-    client_id = st.secrets["CLIENT_ID"]
-    redirect_uri = st.secrets["REDIRECT_URI"]
-    cognito_domain = st.secrets["COGNITO_DOMAIN"]
-
-    token_url = f"{cognito_domain}/oauth2/token"
+    """
+    Cognito のトークンエンドポイントに認証コードをPOSTして、
+    アクセストークンとIDトークンを取得する。
+    """
+    CLIENT_ID = st.secrets["CLIENT_ID"]
+    REDIRECT_URI = st.secrets["REDIRECT_URI"]
+    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
+    token_url = f"{COGNITO_DOMAIN}/oauth2/token"
     payload = {
         "grant_type": "authorization_code",
         "code": auth_code,
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     response = requests.post(token_url, data=payload, headers=headers)
     if response.status_code == 200:
-        return response.json()  # contains access_token, id_token, refresh_token
+        return response.json()  # 例: { "access_token": "...", "id_token": "..." }
     else:
         st.error(f"トークン取得に失敗しました: {response.text}")
         st.stop()
 
 def enforce_cognito_auth():
-    if "id_token" not in st.session_state:
-        query_params = st.query_params
-        if "code" in query_params:
-            tokens = get_tokens(query_params["code"])
-            st.session_state["id_token"] = tokens["id_token"]
-            st.experimental_set_query_params()  # クエリパラメータを除去（再リダイレクト防止）
-        else:
-            client_id = st.secrets["CLIENT_ID"]
-            redirect_uri = st.secrets["REDIRECT_URI"]
-            cognito_domain = st.secrets["COGNITO_DOMAIN"]
-            scopes = "openid+email+phone"
-            params = {
-                "response_type": "code",
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": scopes,
-            }
-            auth_url = f"{cognito_domain}/oauth2/authorize?{urllib.parse.urlencode(params)}"
-            st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
-            st.stop()
+    """
+    認証済みか判定し、未認証の場合は Cognito の認証ページへリダイレクト。
+    認証コードがURLに存在すればトークンを取得し、セッションに保存。
+    """
+    # すでに認証済みなら何もしない
+    if "id_token" in st.session_state:
+        return
+
+    query_params = st.query_params  # Streamlit v1.44.1 以降は st.query_params を使用
+    if "code" in query_params:
+        # 認証コードが存在する → トークン交換
+        auth_code = query_params["code"]
+        tokens = get_tokens(auth_code)
+        st.session_state["access_token"] = tokens.get("access_token")
+        st.session_state["id_token"] = tokens.get("id_token")
+        # クエリパラメータをクリアして再処理を防止
+        st.experimental_set_query_params()
+    else:
+        # 認証コードがない → Cognito にリダイレクト
+        CLIENT_ID = st.secrets["CLIENT_ID"]
+        REDIRECT_URI = st.secrets["REDIRECT_URI"]
+        COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
+        scopes = "openid+email+phone"
+        params = {
+            "response_type": "code",
+            "client_id": CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
+            "scope": scopes,
+        }
+        auth_url = f"{COGNITO_DOMAIN}/oauth2/authorize?{urllib.parse.urlencode(params)}"
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
+        st.stop()
 
 def main():
     enforce_cognito_auth()
