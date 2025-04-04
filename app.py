@@ -1,12 +1,11 @@
 import os
 import json
 import streamlit as st
-import urllib.parse
-import requests
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
+
 from pinecone import Pinecone
 from datetime import datetime
+
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
@@ -15,6 +14,7 @@ from langchain.prompts import PromptTemplate
 
 # --- ページをワイドに設定 ---
 st.set_page_config(layout="wide")
+
 load_dotenv()
 
 # --------------------------------------------------
@@ -67,92 +67,7 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-# =============================
-# 【認証処理用】関数定義
-# =============================
-def force_top_level():
-    """
-    アプリが iframe 内で実行されている場合、トップレベルのウィンドウに切り替えるスクリプトを実行します。
-    """
-    components.html(
-        """
-        <script>
-          if (window.top !== window.self) {
-              window.top.location = window.location.href;
-          }
-        </script>
-        """,
-        height=0,
-    )
-
-def get_tokens(auth_code: str):
-    """
-    Cognito のトークンエンドポイントに認証コードをPOSTして、トークンを取得します。
-    """
-    CLIENT_ID = st.secrets["CLIENT_ID"]
-    REDIRECT_URI = st.secrets["REDIRECT_URI"]
-    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
-    token_url = f"{COGNITO_DOMAIN}/oauth2/token"
-    payload = {
-        "grant_type": "authorization_code",
-        "code": auth_code,
-        "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
-    }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    response = requests.post(token_url, data=payload, headers=headers)
-    
-    st.write("【Debug】Token Response Code:", response.status_code)
-    st.write("【Debug】Token Response Body:", response.text)
-    
-    if response.status_code == 200:
-        return response.json()  # 例: { "access_token": "...", "id_token": "..." }
-    else:
-        st.error(f"トークン取得に失敗しました: {response.text}")
-        st.stop()
-
-def enforce_cognito_auth():
-    """
-    Cognito の認証コードを処理してトークンを取得し、セッションに保存します。
-    認証済みの場合は何もしません。認証コード取得後は、meta refresh を用いてクリーンなURLにリダイレクトします。
-    """
-    st.write("【Debug】Query Parameters:", st.query_params)
-    
-    # すでに認証済みなら何もしない
-    if "id_token" in st.session_state:
-        return
-
-    query_params = st.query_params
-    if "code" in query_params:
-        auth_code = query_params["code"]
-        tokens = get_tokens(auth_code)
-        st.session_state["access_token"] = tokens.get("access_token")
-        st.session_state["id_token"] = tokens.get("id_token")
-        # クエリパラメータをクリアするため、REDIRECT_URI へ meta refresh でリダイレクト
-        REDIRECT_URI = st.secrets["REDIRECT_URI"]
-        st.markdown(f'<meta http-equiv="refresh" content="0;url={REDIRECT_URI}">', unsafe_allow_html=True)
-        st.stop()
-    else:
-        CLIENT_ID = st.secrets["CLIENT_ID"]
-        REDIRECT_URI = st.secrets["REDIRECT_URI"]
-        COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
-        scopes = "openid email phone"  # スペース区切り
-        params = {
-            "response_type": "code",
-            "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
-            "scope": scopes,
-        }
-        auth_url = f"{COGNITO_DOMAIN}/oauth2/authorize?{urllib.parse.urlencode(params)}"
-        st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
-        st.stop()
-
 def main():
-    # 強制的にトップレベルで表示する
-    force_top_level()
-    # 認証処理
-    enforce_cognito_auth()
-    st.write("【Debug】Session State:", st.session_state)
     st.title("SAP Concur 開発支援")
 
     # --------------------------------------------------
