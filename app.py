@@ -1,11 +1,10 @@
 import os
 import json
 import streamlit as st
+import urllib.parse
 from dotenv import load_dotenv
-
 from pinecone import Pinecone
 from datetime import datetime
-
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain.chat_models import ChatOpenAI
@@ -67,7 +66,30 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
+def enforce_cognito_auth():
+    CLIENT_ID = st.secrets["CLIENT_ID"]
+    REDIRECT_URI = st.secrets["REDIRECT_URI"]
+    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
+    SCOPES = "openid+email+phone"
+    AUTH_URL = f"{COGNITO_DOMAIN}/oauth2/authorize"
+
+    # 認証コードの取得を試みる
+    query_params = st.query_params
+    if "code" not in query_params:
+        # 未ログイン → Cognitoにリダイレクト
+        params = {
+            "response_type": "code",
+            "client_id": CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
+            "scope": SCOPES,
+        }
+        redirect_url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={redirect_url}">', unsafe_allow_html=True)
+        st.stop()
+    # 認証済みで code が取得できていれば、ここを通過
+
 def main():
+    enforce_cognito_auth()
     st.title("SAP Concur 開発支援")
 
     # --------------------------------------------------
