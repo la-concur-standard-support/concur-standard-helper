@@ -68,7 +68,7 @@ custom_prompt = PromptTemplate(
 )
 
 def main():
-    st.title("Concur Dev Support - Concur開発支援")
+    st.title("Concur開発支援")
 
     # --------------------------------------------------
     # セッション初期化
