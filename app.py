@@ -70,6 +70,9 @@ custom_prompt = PromptTemplate(
 # 【認証処理用】関数定義
 # =============================
 def get_tokens(auth_code: str):
+    """
+    Cognito のトークンエンドポイントに認証コードをPOSTして、トークンを取得する。
+    """
     CLIENT_ID = st.secrets["CLIENT_ID"]
     REDIRECT_URI = st.secrets["REDIRECT_URI"]
     COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
@@ -87,14 +90,21 @@ def get_tokens(auth_code: str):
     st.write("【Debug】Token Response Body:", response.text)
     
     if response.status_code == 200:
-        return response.json()
+        return response.json()  # 返り値に access_token, id_token などが含まれる
     else:
         st.error(f"トークン取得に失敗しました: {response.text}")
         st.stop()
 
 def enforce_cognito_auth():
+    """
+    Cognito の認証コードを処理してトークンを取得し、セッションに保存する。
+    既に認証済みの場合は何もせず、未認証の場合は認証ページへリダイレクトする。
+    また、トークン取得後は meta refresh を使ってURLからクエリパラメータを除去する。
+    """
+    # デバッグ用：クエリパラメータの内容を表示
     st.write("【Debug】Query Parameters:", st.query_params)
-    # すでに認証済みなら通す
+    
+    # すでに認証済みなら何もしない
     if "id_token" in st.session_state:
         return
 
@@ -104,11 +114,16 @@ def enforce_cognito_auth():
         tokens = get_tokens(auth_code)
         st.session_state["access_token"] = tokens.get("access_token")
         st.session_state["id_token"] = tokens.get("id_token")
-        st.experimental_set_query_params()  # クエリパラメータをクリア
+        # クリーンなURLへリダイレクトしてクエリパラメータを除去
+        REDIRECT_URI = st.secrets["REDIRECT_URI"]
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={REDIRECT_URI}">', unsafe_allow_html=True)
+        st.stop()
     else:
+        # 未認証の場合 → Cognito 認証ページへリダイレクト
         CLIENT_ID = st.secrets["CLIENT_ID"]
         REDIRECT_URI = st.secrets["REDIRECT_URI"]
         COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
+        # スコープはスペース区切り ("openid email phone")
         scopes = "openid email phone"
         params = {
             "response_type": "code",
