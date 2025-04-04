@@ -109,7 +109,7 @@ def enforce_cognito_auth():
         CLIENT_ID = st.secrets["CLIENT_ID"]
         REDIRECT_URI = st.secrets["REDIRECT_URI"]
         COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
-        scopes = "openid+email+phone"
+        scopes = "openid email phone"
         params = {
             "response_type": "code",
             "client_id": CLIENT_ID,
