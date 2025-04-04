@@ -73,10 +73,9 @@ def enforce_cognito_auth():
     SCOPES = "openid+email+phone"
     AUTH_URL = f"{COGNITO_DOMAIN}/oauth2/authorize"
 
-    # 認証コードの取得を試みる
-    query_params = st.query_params
+    # クエリパラメータから code を取得
+    query_params = st.experimental_get_query_params()
     if "code" not in query_params:
-        # 未ログイン → Cognitoにリダイレクト
         params = {
             "response_type": "code",
             "client_id": CLIENT_ID,
@@ -86,7 +85,6 @@ def enforce_cognito_auth():
         redirect_url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
         st.markdown(f'<meta http-equiv="refresh" content="0;url={redirect_url}">', unsafe_allow_html=True)
         st.stop()
-    # 認証済みで code が取得できていれば、ここを通過
 
 def main():
     enforce_cognito_auth()
