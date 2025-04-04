@@ -67,56 +67,47 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"]
 )
 
-def enforce_cognito_auth():
-    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]  # 例: https://auth.aiph.la-ws.jp
-    CLIENT_ID = st.secrets["CLIENT_ID"]
-    REDIRECT_URI = st.secrets["REDIRECT_URI"]
+def get_tokens(auth_code: str):
+    client_id = st.secrets["CLIENT_ID"]
+    redirect_uri = st.secrets["REDIRECT_URI"]
+    cognito_domain = st.secrets["COGNITO_DOMAIN"]
 
-    query_params = st.query_params
-    code = query_params.get("code")
-
-    # 認証済なら通す（セッションにトークン保持済み）
-    if "access_token" in st.session_state:
-        return
-
-    # 初回: 認証コードがある場合はトークンに交換
-    if code:
-        token_url = f"{COGNITO_DOMAIN}/oauth2/token"
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        data = {
-            "grant_type": "authorization_code",
-            "client_id": CLIENT_ID,
-            "code": code,
-            "redirect_uri": REDIRECT_URI
-        }
-        response = requests.post(token_url, headers=headers, data=data)
-
-        if response.status_code == 200:
-            token_data = response.json()
-            st.session_state["access_token"] = token_data.get("access_token")
-            st.session_state["id_token"] = token_data.get("id_token")
-
-            # URLの ?code=xxx を取り除くためにリロード
-            clean_url = REDIRECT_URI
-            st.markdown(f'<meta http-equiv="refresh" content="0; url={clean_url}">', unsafe_allow_html=True)
-            st.stop()
-        else:
-            st.error("認証に失敗しました。再度ログインしてください。")
-            st.stop()
-
-    # 認証コードがない場合 → Cognito にリダイレクト
+    token_url = f"{cognito_domain}/oauth2/token"
+    payload = {
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    response = requests.post(token_url, data=payload, headers=headers)
+    if response.status_code == 200:
+        return response.json()  # contains access_token, id_token, refresh_token
     else:
-        auth_url = f"{COGNITO_DOMAIN}/oauth2/authorize"
-        params = {
-            "response_type": "code",
-            "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
-            "scope": "openid email phone"
-        }
-        redirect_url = f"{auth_url}?{urllib.parse.urlencode(params)}"
-        st.markdown(f'<meta http-equiv="refresh" content="0;url={redirect_url}">', unsafe_allow_html=True)
+        st.error(f"トークン取得に失敗しました: {response.text}")
         st.stop()
 
+def enforce_cognito_auth():
+    if "id_token" not in st.session_state:
+        query_params = st.query_params
+        if "code" in query_params:
+            tokens = get_tokens(query_params["code"])
+            st.session_state["id_token"] = tokens["id_token"]
+            st.experimental_set_query_params()  # クエリパラメータを除去（再リダイレクト防止）
+        else:
+            client_id = st.secrets["CLIENT_ID"]
+            redirect_uri = st.secrets["REDIRECT_URI"]
+            cognito_domain = st.secrets["COGNITO_DOMAIN"]
+            scopes = "openid+email+phone"
+            params = {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": scopes,
+            }
+            auth_url = f"{cognito_domain}/oauth2/authorize?{urllib.parse.urlencode(params)}"
+            st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
+            st.stop()
 
 def main():
     enforce_cognito_auth()
