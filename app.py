@@ -70,10 +70,6 @@ custom_prompt = PromptTemplate(
 # 【認証処理用】関数定義
 # =============================
 def get_tokens(auth_code: str):
-    """
-    Cognito のトークンエンドポイントに認証コードをPOSTして、
-    アクセストークンとIDトークンを取得する。
-    """
     CLIENT_ID = st.secrets["CLIENT_ID"]
     REDIRECT_URI = st.secrets["REDIRECT_URI"]
     COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
@@ -86,32 +82,30 @@ def get_tokens(auth_code: str):
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     response = requests.post(token_url, data=payload, headers=headers)
+    
+    st.write("【Debug】Token Response Code:", response.status_code)
+    st.write("【Debug】Token Response Body:", response.text)
+    
     if response.status_code == 200:
-        return response.json()  # 例: { "access_token": "...", "id_token": "..." }
+        return response.json()
     else:
         st.error(f"トークン取得に失敗しました: {response.text}")
         st.stop()
 
 def enforce_cognito_auth():
-    """
-    認証済みか判定し、未認証の場合は Cognito の認証ページへリダイレクト。
-    認証コードがURLに存在すればトークンを取得し、セッションに保存。
-    """
-    # すでに認証済みなら何もしない
+    st.write("【Debug】Query Parameters:", st.query_params)
+    # すでに認証済みなら通す
     if "id_token" in st.session_state:
         return
 
-    query_params = st.query_params  # Streamlit v1.44.1 以降は st.query_params を使用
+    query_params = st.query_params
     if "code" in query_params:
-        # 認証コードが存在する → トークン交換
         auth_code = query_params["code"]
         tokens = get_tokens(auth_code)
         st.session_state["access_token"] = tokens.get("access_token")
         st.session_state["id_token"] = tokens.get("id_token")
-        # クエリパラメータをクリアして再処理を防止
-        st.experimental_set_query_params()
+        st.experimental_set_query_params()  # クエリパラメータをクリア
     else:
-        # 認証コードがない → Cognito にリダイレクト
         CLIENT_ID = st.secrets["CLIENT_ID"]
         REDIRECT_URI = st.secrets["REDIRECT_URI"]
         COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
@@ -128,6 +122,8 @@ def enforce_cognito_auth():
 
 def main():
     enforce_cognito_auth()
+    st.write("【Debug】Session State:", st.session_state)  # セッション内容の確認
+    
     st.title("SAP Concur 開発支援")
 
     # --------------------------------------------------
