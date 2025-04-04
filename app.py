@@ -74,7 +74,11 @@ def enforce_cognito_auth():
     AUTH_URL = f"{COGNITO_DOMAIN}/oauth2/authorize"
 
     # クエリパラメータから code を取得
-    query_params = st.experimental_get_query_params()
+    try:
+        query_params = st.query_params  # Streamlit v1.33以降はこちら
+    except AttributeError:
+        query_params = st.experimental_get_query_params()  # 旧バージョン互換
+
     if "code" not in query_params:
         params = {
             "response_type": "code",
