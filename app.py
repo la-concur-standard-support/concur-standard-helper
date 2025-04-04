@@ -2,6 +2,7 @@ import os
 import json
 import streamlit as st
 import urllib.parse
+import requests
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from datetime import datetime
@@ -67,28 +68,55 @@ custom_prompt = PromptTemplate(
 )
 
 def enforce_cognito_auth():
+    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]  # 例: https://auth.aiph.la-ws.jp
     CLIENT_ID = st.secrets["CLIENT_ID"]
     REDIRECT_URI = st.secrets["REDIRECT_URI"]
-    COGNITO_DOMAIN = st.secrets["COGNITO_DOMAIN"]
-    SCOPES = "openid+email+phone"
-    AUTH_URL = f"{COGNITO_DOMAIN}/oauth2/authorize"
 
-    # クエリパラメータから code を取得
-    try:
-        query_params = st.query_params  # Streamlit v1.33以降はこちら
-    except AttributeError:
-        query_params = st.experimental_get_query_params()  # 旧バージョン互換
+    query_params = st.query_params
+    code = query_params.get("code")
 
-    if "code" not in query_params:
+    # 認証済なら通す（セッションにトークン保持済み）
+    if "access_token" in st.session_state:
+        return
+
+    # 初回: 認証コードがある場合はトークンに交換
+    if code:
+        token_url = f"{COGNITO_DOMAIN}/oauth2/token"
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "code": code,
+            "redirect_uri": REDIRECT_URI
+        }
+        response = requests.post(token_url, headers=headers, data=data)
+
+        if response.status_code == 200:
+            token_data = response.json()
+            st.session_state["access_token"] = token_data.get("access_token")
+            st.session_state["id_token"] = token_data.get("id_token")
+
+            # URLの ?code=xxx を取り除くためにリロード
+            clean_url = REDIRECT_URI
+            st.markdown(f'<meta http-equiv="refresh" content="0; url={clean_url}">', unsafe_allow_html=True)
+            st.stop()
+        else:
+            st.error("認証に失敗しました。再度ログインしてください。")
+            st.stop()
+
+    # 認証コードがない場合 → Cognito にリダイレクト
+    else:
+        auth_url = f"{COGNITO_DOMAIN}/oauth2/authorize"
         params = {
             "response_type": "code",
             "client_id": CLIENT_ID,
             "redirect_uri": REDIRECT_URI,
-            "scope": SCOPES,
+            "scope": "openid email phone"
         }
-        redirect_url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
+        redirect_url = f"{auth_url}?{urllib.parse.urlencode(params)}"
         st.markdown(f'<meta http-equiv="refresh" content="0;url={redirect_url}">', unsafe_allow_html=True)
         st.stop()
+
 
 def main():
     enforce_cognito_auth()
