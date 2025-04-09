@@ -258,7 +258,7 @@ def main():
     # -------------------------
     with col_left:
         st.markdown("## Step1: 概要検索")
-        st.write("大まかな質問を入力してください。回答後、必要な箇所をコピーして下の詳細検索に。")
+        st.info("大まかな質問を入力してください。回答後、必要な箇所をコピーして詳細検索してください。")
 
         with st.form(key="summary_form"):
             summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
