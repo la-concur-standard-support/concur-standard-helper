@@ -258,7 +258,7 @@ def main():
     # -------------------------
     with col_left:
         st.markdown("## Step1: 概要検索")
-        st.info("大まかな質問を入力してください。回答後、必要な箇所をコピーして詳細検索してください。")
+        st.info("大まかな質問を入力してください。回答後、必要な箇所をコピーして詳細検索で利用してください。")
 
         with st.form(key="summary_form"):
             summary_question = st.text_input("例: 『勘定科目コードの概要』『元帳の作業手順』『ワークフローの設定』")
@@ -286,7 +286,7 @@ def main():
                 st.write("---")
 
         st.markdown("## Step2: 詳細検索")
-        st.info("上の回答から詳しく知りたい部分をコピーして下に貼り付け、詳細検索してください。")
+        st.info("概要検索の回答から詳しく知りたい部分をコピーして下に貼り付け、詳細検索してください。")
 
         with st.form(key="detail_form"):
             detail_question = st.text_area("詳しく知りたい箇所をコピペして検索", height=100)
