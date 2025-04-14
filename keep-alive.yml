@@ -1,0 +1,19 @@
+name: Keep-Alive Streamlit
+
+# 以下のスケジュールで実行されるGitHub Actionsのワークフロー
+# 1時間ごとにStreamlitアプリにpingを送信して、アプリをスリープ状態から復帰させるためのもの
+# 参考: https://docs.github.com/ja/actions/learn-github-actions/events-types-reference#schedule
+on:
+  schedule:
+    - cron: "*/60 * * * *"  # 毎時60分ごとに実行
+  workflow_dispatch:        # 任意実行も可能にする
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send a Ping Request to Streamlit App
+        run: |
+          echo "Pinging Streamlit App to keep it awake..."
+          curl -I https://concur-dev-support.streamlit.app/ || true
