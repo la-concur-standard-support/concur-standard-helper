@@ -68,7 +68,7 @@ def get_email_config():
     )
     return config
 
-def extract_verification_code(email_config, max_wait_time=300):
+def extract_verification_code(email_config, max_wait_time=180):
     """
     UNSEEN (未読) メールだけを対象に、Streamlit のワンタイムコードを探す。
     """
