@@ -19,6 +19,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def is_streamlit_verification_email(email_message):
+    """
+    Streamlitのワンタイムコードメールであるか判定。
+    差出人が no-reply@streamlit.io で、本文中に "your one-time code is:"
+    (大小文字問わず) が含まれていれば True とする。
+    """
     try:
         from_address = email_message.get('from', '')
         from_header = email_message.get('From', '')
@@ -27,21 +32,24 @@ def is_streamlit_verification_email(email_message):
         logger.info(f"[DEBUG] Checking from='{from_address}', header='{from_header}', subject='{subject}'")
 
         # 差出人が no-reply@streamlit.io でなければスキップ
-        if 'no-reply@streamlit.io' not in from_address and 'no-reply@streamlit.io' not in from_header:
+        if 'no-reply@streamlit.io' not in from_address.lower() and 'no-reply@streamlit.io' not in from_header.lower():
             return False
         
-        # 本文に "Sign in to Streamlit Community Cloud" と "Your one-time code is:" が含まれるか判定
+        # 本文を確認（大小文字の違いを吸収するため lower() して検索）
         for part in email_message.walk():
             if part.get_content_type() == 'text/plain':
-                body = part.get_payload(decode=True).decode(errors='replace')
-                logger.info(f"[DEBUG] Plain text body:\n{body}")
+                body_raw = part.get_payload(decode=True).decode(errors='replace')
+                logger.info(f"[DEBUG] Plain text body:\n{body_raw}")
 
-                if ('Sign in to Streamlit Community Cloud' in body
-                        and 'Your one-time code is:' in body):
+                body_lower = body_raw.lower()
+                # "your one-time code is:" を含むならOK
+                if "your one-time code is:" in body_lower:
                     return True
+
     except Exception as e:
         logger.warning(f"メール検証中にエラー: {e}")
     return False
+
 
 def get_email_config():
     config = {
@@ -67,6 +75,7 @@ def get_email_config():
         f"imap_port={config['imap_port']}"
     )
     return config
+
 
 def extract_verification_code(email_config, max_wait_time=180):
     """
@@ -125,6 +134,7 @@ def extract_verification_code(email_config, max_wait_time=180):
     
     return None
 
+
 def search_for_code_in_messages(mail, message_ids):
     """
     UNSEEN のメッセージID一覧を順にチェックし、
@@ -156,6 +166,7 @@ def search_for_code_in_messages(mail, message_ids):
                         logger.info(f"検証コードを取得(スペース考慮): {code}")
                         return code
     return None
+
 
 def login_to_streamlit(driver, email):
     """
@@ -285,3 +296,4 @@ if __name__ == '__main__':
     
     end_time = time.time()
     logger.info(f"Keep-Alive ジョブ終了 (所要時間: {end_time - start_time:.2f}秒)")
+    
