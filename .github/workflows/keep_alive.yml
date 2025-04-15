@@ -28,8 +28,10 @@ jobs:
         env:
           STREAMLIT_EMAIL: ${{ secrets.STREAMLIT_EMAIL }}
           STREAMLIT_EMAIL_PASSWORD: ${{ secrets.STREAMLIT_EMAIL_PASSWORD }}
-          EMAIL_IMAP_SERVER: mas22.kagoya.net
-          EMAIL_USERNAME: libertas.kishiyaman
+          EMAIL_IMAP_SERVER: ${{ secrets.EMAIL_IMAP_SERVER }}
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
       
       - name: Upload screenshots as artifacts
         uses: actions/upload-artifact@v4
