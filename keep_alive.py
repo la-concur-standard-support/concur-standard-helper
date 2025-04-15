@@ -26,9 +26,11 @@ def is_streamlit_verification_email(email_message):
 
         logger.info(f"[DEBUG] Checking from='{from_address}', header='{from_header}', subject='{subject}'")
 
+        # 差出人が no-reply@streamlit.io でなければスキップ
         if 'no-reply@streamlit.io' not in from_address and 'no-reply@streamlit.io' not in from_header:
             return False
         
+        # 本文に "Sign in to Streamlit Community Cloud" と "Your one-time code is:" が含まれるか判定
         for part in email_message.walk():
             if part.get_content_type() == 'text/plain':
                 body = part.get_payload(decode=True).decode(errors='replace')
@@ -67,12 +69,18 @@ def get_email_config():
     return config
 
 def extract_verification_code(email_config, max_wait_time=300):
+    """
+    UNSEEN (未読) メールだけを対象に、Streamlit のワンタイムコードを探す。
+    デバッグ用の ALL 検索を削除し、無関係なメールログを出さない。
+    """
     start_time = time.time()
     mail = None
     
     try:
+        # IMAPに接続
         mail = imaplib.IMAP4_SSL(email_config['imap_server'], email_config['imap_port'])
         
+        # ユーザー名として 'email' または 'username' を試行
         login_attempts = [email_config['email'], email_config['username']]
         login_successful = False
         
@@ -93,9 +101,9 @@ def extract_verification_code(email_config, max_wait_time=300):
         
         mail.select('inbox')
         
+        # max_wait_time の間、未読メールを探し続ける
         while time.time() - start_time < max_wait_time:
-            # 1) まずは UNSEEN を検索
-            logger.info("[DEBUG] Searching UNSEEN mails...")
+            logger.info("[DEBUG] Searching UNSEEN mails only...")
             _, unseen_data = mail.search(None, 'UNSEEN')
             message_ids = unseen_data[0].split()
             logger.info(f"[DEBUG] Found UNSEEN message IDs: {message_ids}")
@@ -104,19 +112,6 @@ def extract_verification_code(email_config, max_wait_time=300):
             if found_code:
                 return found_code
             
-            # 2) （デバッグ用）念のため ALL も検索してメールの状況を確認
-            logger.info("[DEBUG] Searching ALL mails for debug...")
-            _, all_data = mail.search(None, 'ALL')
-            all_message_ids = all_data[0].split()
-            logger.info(f"[DEBUG] Found ALL message IDs: {all_message_ids}")
-
-            # ALL のメールについても一通りログに出して確認（実際は不要なら省略してOK）
-            debug_code = search_for_code_in_messages(mail, all_message_ids, debug_only=True)
-            if debug_code:
-                # ALL 検索で見つかったことを知るためにログ
-                logger.info(f"[DEBUG] Found code in ALL (not UNSEEN) => {debug_code}")
-
-            # 再度待機して再検索
             time.sleep(10)
 
         logger.warning("指定時間内にコードを見つけられませんでした")
@@ -134,9 +129,8 @@ def extract_verification_code(email_config, max_wait_time=300):
 
 def search_for_code_in_messages(mail, message_ids, debug_only=False):
     """
-    指定されたメッセージID一覧を順にチェックし、
+    UNSEEN のメッセージID一覧を順にチェックし、
     Streamlit ワンタイムコードが含まれるメールを見つけたらコードを返す。
-    debug_only=True の場合はコードを返しても実際には使わない想定のデバッグ用。
     """
     for num in message_ids:
         _, data = mail.fetch(num, '(RFC822)')
@@ -144,20 +138,17 @@ def search_for_code_in_messages(mail, message_ids, debug_only=False):
         email_message = email.message_from_bytes(raw_email)
         
         if is_streamlit_verification_email(email_message):
-            logger.info("Streamlitからのメールを発見 (UNSEEN かALL かは呼び出し元に依存)")
-            # 本文から「連続ではなくスペース入り」の6桁コードを抽出
+            logger.info("Streamlitからのメールを発見 (UNSEEN)")
+            # 本文からスペース入り6桁コードを抽出
             for part in email_message.walk():
                 if part.get_content_type() == 'text/plain':
                     body = part.get_payload(decode=True).decode(errors='replace')
-                    # 全ての数字を取り出し、先頭6桁を連結
+                    # すべての数字を取り出し、先頭6桁を連結
                     match_digits = re.findall(r'\d', body)
                     if len(match_digits) >= 6:
                         code = "".join(match_digits[:6])
                         logger.info(f"検証コードを取得(スペース考慮): {code}")
-                        if not debug_only:
-                            return code
-                        else:
-                            logger.info("[DEBUG] Found code in 'ALL' search: " + code)
+                        return code
     return None
 
 def login_to_streamlit(driver, email):
@@ -179,7 +170,6 @@ def login_to_streamlit(driver, email):
         continue_button.click()
         logger.info("Continueボタンをクリックしてワンタイムコード送信")
 
-        # メール到着の遅延対策
         time.sleep(5)
 
         code_inputs = WebDriverWait(driver, 30).until(
