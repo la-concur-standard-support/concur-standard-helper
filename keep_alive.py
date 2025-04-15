@@ -76,9 +76,8 @@ def extract_verification_code(email_config, max_wait_time=300):
     mail = None
     
     try:
-        # IMAPに接続
         mail = imaplib.IMAP4_SSL(email_config['imap_server'], email_config['imap_port'])
-        
+
         # ユーザー名として 'email' または 'username' を試行
         login_attempts = [email_config['email'], email_config['username']]
         login_successful = False
@@ -130,6 +129,7 @@ def search_for_code_in_messages(mail, message_ids):
     """
     UNSEEN のメッセージID一覧を順にチェックし、
     Streamlit ワンタイムコードが含まれるメールを見つけたらコードを返す。
+    HTMLパートにも数字があるかもしれないため、text/plain 以外 (text/html) もチェック。
     """
     for num in message_ids:
         _, data = mail.fetch(num, '(RFC822)')
@@ -138,11 +138,19 @@ def search_for_code_in_messages(mail, message_ids):
         
         if is_streamlit_verification_email(email_message):
             logger.info("Streamlitからのメールを発見 (UNSEEN)")
-            # 本文からスペース入り6桁コードを抽出
+            # メールに含まれる各パートを順に確認 (text/plain, text/html など)
             for part in email_message.walk():
-                if part.get_content_type() == 'text/plain':
+                content_type = part.get_content_type()
+                logger.info(f"[DEBUG] Checking part with content_type={content_type}")
+                
+                # text/plain だけでなく text/html も数字抽出を試す
+                if content_type in ('text/plain', 'text/html'):
                     body = part.get_payload(decode=True).decode(errors='replace')
+                    
+                    # 数字を全部抽出して先頭6桁を連結
                     match_digits = re.findall(r'\d', body)
+                    logger.info(f"[DEBUG] digits_found={match_digits}, length={len(match_digits)} in part={content_type}")
+                    
                     if len(match_digits) >= 6:
                         code = "".join(match_digits[:6])
                         logger.info(f"検証コードを取得(スペース考慮): {code}")
