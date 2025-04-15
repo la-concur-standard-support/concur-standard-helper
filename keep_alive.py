@@ -71,40 +71,61 @@ def visit_streamlit_app(url, email=None, password=None):
         # プライベートアプリでログインが必要な場合
         if email and password:
             try:
-                # ログインフォームが表示されるまで待機
-                login_button = WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Log in')]"))
-                )
-                login_button.click()
+                # スクリーンショット撮影（ログイン前の状態確認用）
+                driver.save_screenshot('screenshot_before_login.png')
+                logger.info("ログイン前のスクリーンショット撮影")
                 
-                # メールアドレスの入力
-                email_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
-                )
-                email_input.send_keys(email)
+                # ログインボタンが存在するか確認（短いタイムアウトで）
+                login_button = None
+                try:
+                    login_button = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Log in')]"))
+                    )
+                    logger.info("ログインボタンが見つかりました。ログイン処理を開始します。")
+                except Exception as e:
+                    logger.info(f"ログインボタンが見つかりません: {e}")
+                    logger.info("ログインは不要かすでにログイン済みの可能性があります。処理を続行します。")
                 
-                # 次へボタンのクリック
-                continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
-                continue_button.click()
+                # ログインボタンが見つかった場合のみログイン処理を実行
+                if login_button:
+                    login_button.click()
+                    
+                    # メールアドレスの入力
+                    email_input = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
+                    )
+                    email_input.send_keys(email)
+                    
+                    # 次へボタンのクリック
+                    continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
+                    continue_button.click()
+                    
+                    # パスワードの入力
+                    password_input = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
+                    )
+                    password_input.send_keys(password)
+                    
+                    # ログインボタンのクリック
+                    login_submit = driver.find_element(By.XPATH, "//button[@type='submit']")
+                    login_submit.click()
+                    
+                    # ログイン後、アプリが読み込まれるまで待機
+                    WebDriverWait(driver, 30).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "iframe"))
+                    )
+                    
+                    logger.info("ログイン成功")
                 
-                # パスワードの入力
-                password_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
-                )
-                password_input.send_keys(password)
-                
-                # ログインボタンのクリック
-                login_submit = driver.find_element(By.XPATH, "//button[@type='submit']")
-                login_submit.click()
-                
-                # ログイン後、アプリが読み込まれるまで待機
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "iframe"))
-                )
-                
-                logger.info("ログイン成功")
+                # スクリーンショット撮影（ログイン後の状態確認用）
+                driver.save_screenshot('screenshot_after_login.png')
+                logger.info("ログイン後のスクリーンショット撮影")
             except Exception as e:
-                logger.error(f"ログイン処理中にエラー発生: {e}")
+                logger.warning(f"ログイン処理中にエラー発生: {e}")
+                logger.info("ログインに失敗しましたが、処理を続行します。")
+                # エラー時のスクリーンショット
+                driver.save_screenshot('screenshot_login_error.png')
+                logger.info("エラー時のスクリーンショット撮影")
         
         # アプリが読み込まれるまで待機
         time.sleep(15)

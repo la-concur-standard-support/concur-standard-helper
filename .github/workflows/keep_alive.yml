@@ -2,8 +2,8 @@ name: Keep Streamlit App Alive
 
 on:
   schedule:
-    # 1時間ごとに実行
-    - cron: '*/60 * * * *'
+    # 1時間ごとに実行 (UTC時間)
+    - cron: '0 */1 * * *'
   workflow_dispatch:  # 手動実行用
 
 jobs:
@@ -28,3 +28,11 @@ jobs:
         env:
           STREAMLIT_PASSWORD: ${{ secrets.STREAMLIT_PASSWORD }}
           STREAMLIT_EMAIL: ${{ secrets.STREAMLIT_EMAIL }}
+      
+      - name: Upload screenshots as artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: screenshots
+          path: screenshot_*.png
+          retention-days: 5
