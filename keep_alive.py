@@ -71,7 +71,6 @@ def get_email_config():
 def extract_verification_code(email_config, max_wait_time=300):
     """
     UNSEEN (未読) メールだけを対象に、Streamlit のワンタイムコードを探す。
-    デバッグ用の ALL 検索を削除し、無関係なメールログを出さない。
     """
     start_time = time.time()
     mail = None
@@ -127,7 +126,7 @@ def extract_verification_code(email_config, max_wait_time=300):
     
     return None
 
-def search_for_code_in_messages(mail, message_ids, debug_only=False):
+def search_for_code_in_messages(mail, message_ids):
     """
     UNSEEN のメッセージID一覧を順にチェックし、
     Streamlit ワンタイムコードが含まれるメールを見つけたらコードを返す。
@@ -143,7 +142,6 @@ def search_for_code_in_messages(mail, message_ids, debug_only=False):
             for part in email_message.walk():
                 if part.get_content_type() == 'text/plain':
                     body = part.get_payload(decode=True).decode(errors='replace')
-                    # すべての数字を取り出し、先頭6桁を連結
                     match_digits = re.findall(r'\d', body)
                     if len(match_digits) >= 6:
                         code = "".join(match_digits[:6])
@@ -152,13 +150,22 @@ def search_for_code_in_messages(mail, message_ids, debug_only=False):
     return None
 
 def login_to_streamlit(driver, email):
+    """
+    Streamlit へのログインフローをデバッグしやすくするために、
+    各ステップでスクリーンショットを撮り、画面URL等をログ出力する。
+    """
     try:
+        # --- STEP 1: Sign inボタンをクリック ---
         sign_in_button = WebDriverWait(driver, 30).until(
             EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in')]"))
         )
         sign_in_button.click()
         logger.info("Sign in ボタンをクリック")
+        
+        driver.save_screenshot("debug_screenshot_1_signin_clicked.png")
+        logger.info(f"[DEBUG] Current URL after Sign in click: {driver.current_url}")
 
+        # --- STEP 2: メールアドレス入力 ---
         email_input = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'][name='email']"))
         )
@@ -166,22 +173,32 @@ def login_to_streamlit(driver, email):
         email_input.send_keys(email)
         logger.info(f"メールアドレス '{email}' を入力")
         
+        driver.save_screenshot("debug_screenshot_2_email_input.png")
+
+        # --- STEP 3: Continueボタンクリック -> ワンタイムコード送信 ---
         continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
         continue_button.click()
         logger.info("Continueボタンをクリックしてワンタイムコード送信")
 
-        time.sleep(5)
+        time.sleep(2)
+        driver.save_screenshot("debug_screenshot_3_after_continue.png")
+        logger.info(f"[DEBUG] Current URL after code request: {driver.current_url}")
 
+        # --- STEP 4: ワンタイムコード入力フィールドを待機 ---
         code_inputs = WebDriverWait(driver, 30).until(
             EC.presence_of_all_elements_located((By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']"))
         )
         logger.info("ワンタイムコード入力欄が表示されました")
 
+        driver.save_screenshot("debug_screenshot_4_code_input_appeared.png")
+
+        # --- STEP 5: メールからコードを取得 ---
         email_config = get_email_config()
         verification_code = extract_verification_code(email_config)
         if not verification_code:
             raise ValueError("ワンタイムコードの取得に失敗")
 
+        # --- STEP 6: コード入力を実行 ---
         if len(code_inputs) == 6:
             for i, digit in enumerate(verification_code):
                 code_inputs[i].send_keys(digit)
@@ -189,16 +206,27 @@ def login_to_streamlit(driver, email):
         else:
             raise ValueError(f"入力フィールドが {len(code_inputs)} 個あるため想定外")
 
+        driver.save_screenshot("debug_screenshot_5_after_code_filled.png")
+
+        # --- STEP 7: コード入力後のContinueをクリック ---
         confirm_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
         confirm_button.click()
         logger.info("ワンタイムコード入力後のContinueボタンをクリック")
 
+        driver.save_screenshot("debug_screenshot_6_after_code_continue.png")
+        logger.info(f"[DEBUG] Current URL after code submission: {driver.current_url}")
+
+        # --- STEP 8: ログイン完了 (streamlit.app へ遷移するのを待機) ---
         WebDriverWait(driver, 40).until(
             EC.url_contains("streamlit.app")
         )
         logger.info("ログイン成功！")
+
+        driver.save_screenshot("debug_screenshot_7_login_success.png")
+        logger.info(f"[DEBUG] Final URL: {driver.current_url}")
+
     except Exception as e:
-        logger.error(f"ログイン中にエラー: {e}")
+        logger.error(f"ログイン中にエラーが発生: {e}")
         driver.save_screenshot('screenshot_login_error.png')
         raise
 
@@ -215,6 +243,8 @@ def visit_streamlit_app(url, email):
         driver.get(url)
         logger.info(f"URLにアクセス: {url}")
         
+        driver.save_screenshot("debug_screenshot_0_initial.png")
+
         login_to_streamlit(driver, email)
         time.sleep(10)
         driver.save_screenshot('screenshot_after_login.png')
