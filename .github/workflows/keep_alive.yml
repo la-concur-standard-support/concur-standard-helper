@@ -2,7 +2,7 @@ name: Keep Streamlit App Alive
 
 on:
   schedule:
-    # 6時間ごとに実行 (UTC時間)
+    # 1時間ごとに実行
     - cron: '*/60 * * * *'
   workflow_dispatch:  # 手動実行用
 
