@@ -30,8 +30,10 @@ def is_streamlit_verification_email(email_message):
             return False
         
         for part in email_message.walk():
+            # text/plain の部分を探す
             if part.get_content_type() == 'text/plain':
                 body = part.get_payload(decode=True).decode()
+                # 必要に応じて判定基準を柔軟にする（改行の入り方など）
                 if ('Sign in to Streamlit Community Cloud' in body
                         and 'Your one-time code is:' in body):
                     return True
@@ -58,7 +60,7 @@ def get_email_config():
             logger.error(f"{param.upper()}が設定されていません")
             raise ValueError(f"{param.upper()}は環境変数で設定する必要があります")
 
-    # 追加ログ：Secrets や env が正しく設定されているか確認
+    # デバッグログ（Secrets 漏洩に注意しつつ、長さなどを出力）
     logger.info(
         "[DEBUG] get_email_config: "
         f"email='{config['email']}', "
@@ -67,7 +69,6 @@ def get_email_config():
         f"imap_server='{config['imap_server']}', "
         f"imap_port={config['imap_port']}"
     )
-    
     return config
 
 def extract_verification_code(email_config, max_wait_time=300):
@@ -78,7 +79,6 @@ def extract_verification_code(email_config, max_wait_time=300):
     mail = None
     
     try:
-        # IMAPサーバーに接続
         mail = imaplib.IMAP4_SSL(email_config['imap_server'], email_config['imap_port'])
         
         login_attempts = [email_config['email'], email_config['username']]
@@ -100,11 +100,10 @@ def extract_verification_code(email_config, max_wait_time=300):
         if not login_successful:
             raise ValueError("メールサーバーへのログインに失敗しました")
         
-        # INBOX を選択
         mail.select('inbox')
         
         while time.time() - start_time < max_wait_time:
-            # 未読メールを検索
+            # 最新の未読メールを検索（UNSEEN）
             _, search_data = mail.search(None, 'UNSEEN')
             
             for num in search_data[0].split():
@@ -162,10 +161,13 @@ def login_to_streamlit(driver, email):
         email_input.send_keys(email)
         logger.info(f"メールアドレス '{email}' を入力")
         
-        # 3) 「Continue」ボタンをクリック
+        # 3) 「Continue」ボタンをクリック → メール送信
         continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
         continue_button.click()
         logger.info("Continueボタンをクリックしてワンタイムコード送信")
+
+        # ★★ 送信直後だとメールがまだ届いていない可能性が高いので、ここで少し待つ ★★
+        time.sleep(5)
 
         # 4) ワンタイムコード入力フィールドを待機（6つの <input>）
         code_inputs = WebDriverWait(driver, 30).until(
