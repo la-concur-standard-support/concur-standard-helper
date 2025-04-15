@@ -19,6 +19,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def is_streamlit_verification_email(email_message):
+    """
+    Streamlitの検証メールであるかを確認
+    
+    Args:
+        email_message: メールメッセージオブジェクト
+    
+    Returns:
+        bool: Streamlit検証メールならTrue
+    """
+    try:
+        # 送信元のチェック
+        from_address = email_message.get('from', '')
+        from_header = email_message.get('From', '')
+        if 'no-reply@streamlit.io' not in from_address and 'no-reply@streamlit.io' not in from_header:
+            return False
+        
+        # メール本文の確認
+        for part in email_message.walk():
+            if part.get_content_type() == 'text/plain':
+                body = part.get_payload(decode=True).decode()
+                
+                # 特定のフレーズを確認
+                if ('Sign in to Streamlit Community Cloud' in body and
+                    'Your one-time code is:' in body):
+                    return True
+    except Exception as e:
+        logger.warning(f"メール検証中にエラー: {e}")
+    
+    return False
+
 def get_email_config():
     """
     メール設定を環境変数から安全に取得
@@ -95,9 +126,8 @@ def extract_verification_code(email_config, max_wait_time=300):
                 raw_email = data[0][1]
                 email_message = email.message_from_bytes(raw_email)
                 
-                # Streamlitからのメールを確認
-                if ('Streamlit Community Cloud' in str(email_message['subject']) or 
-                    'streamlit.io' in str(email_message.get('from', ''))):
+                # メールの識別
+                if is_streamlit_verification_email(email_message):
                     logger.info("Streamlitからのメールを発見")
                     
                     # メール本文から6桁のコードを抽出
