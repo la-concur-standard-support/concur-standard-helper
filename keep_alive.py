@@ -113,7 +113,7 @@ def extract_verification_code(email_config, max_wait_time=300):
             # ALL のメールについても一通りログに出して確認（実際は不要なら省略してOK）
             debug_code = search_for_code_in_messages(mail, all_message_ids, debug_only=True)
             if debug_code:
-                # ALL 検索で見つかったことを知るためにログ（ただし `UNSEEN` に該当しない場合、公式には失敗扱いのまま）
+                # ALL 検索で見つかったことを知るためにログ
                 logger.info(f"[DEBUG] Found code in ALL (not UNSEEN) => {debug_code}")
 
             # 再度待機して再検索
@@ -145,18 +145,18 @@ def search_for_code_in_messages(mail, message_ids, debug_only=False):
         
         if is_streamlit_verification_email(email_message):
             logger.info("Streamlitからのメールを発見 (UNSEEN かALL かは呼び出し元に依存)")
-            # 本文から6桁コードを抽出
+            # 本文から「連続ではなくスペース入り」の6桁コードを抽出
             for part in email_message.walk():
                 if part.get_content_type() == 'text/plain':
                     body = part.get_payload(decode=True).decode(errors='replace')
-                    match = re.search(r'\b(\d{6})\b', body)
-                    if match:
-                        code = match.group(1)
-                        logger.info(f"検証コードを取得: {code}")
+                    # 全ての数字を取り出し、先頭6桁を連結
+                    match_digits = re.findall(r'\d', body)
+                    if len(match_digits) >= 6:
+                        code = "".join(match_digits[:6])
+                        logger.info(f"検証コードを取得(スペース考慮): {code}")
                         if not debug_only:
                             return code
                         else:
-                            # デバッグ用の場合は戻すが、実際のリターンにしない
                             logger.info("[DEBUG] Found code in 'ALL' search: " + code)
     return None
 
