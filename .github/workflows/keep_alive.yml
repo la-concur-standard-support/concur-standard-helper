@@ -1,18 +1,30 @@
-name: Keep-Alive Streamlit
+name: Keep Streamlit App Alive
 
-# 定期実行の設定
-# このワークフローは毎時実行され、また手動でも実行可能です。
 on:
   schedule:
-    - cron: "*/60 * * * *"  # 毎時60分ごとに実行
-  workflow_dispatch:        # 手動実行も可能にする
+    # 6時間ごとに実行 (UTC時間)
+    - cron: '*/60 * * * *'
+  workflow_dispatch:  # 手動実行用
 
 jobs:
-  ping:
+  keep_alive:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Send a full request to simulate user session and keep the app awake
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
         run: |
-          echo "Fetching full page to simulate a user session and keep the app awake..."
-          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36" https://concur-dev-support.streamlit.app/ || true
+          python -m pip install --upgrade pip
+          pip install selenium webdriver-manager requests
+      
+      - name: Run keep-alive script
+        run: python keep_alive.py
+        env:
+          STREAMLIT_PASSWORD: ${{ secrets.STREAMLIT_PASSWORD }}
+          STREAMLIT_EMAIL: ${{ secrets.STREAMLIT_EMAIL }}
