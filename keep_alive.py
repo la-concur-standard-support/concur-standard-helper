@@ -57,6 +57,16 @@ def get_email_config():
         if not config[param]:
             logger.error(f"{param.upper()}が設定されていません")
             raise ValueError(f"{param.upper()}は環境変数で設定する必要があります")
+
+    # 追加ログ：Secrets や env が正しく設定されているか確認
+    logger.info(
+        "[DEBUG] get_email_config: "
+        f"email='{config['email']}', "
+        f"username='{config['username']}', "
+        f"password length={len(config['password'])}, "
+        f"imap_server='{config['imap_server']}', "
+        f"imap_port={config['imap_port']}"
+    )
     
     return config
 
@@ -68,22 +78,33 @@ def extract_verification_code(email_config, max_wait_time=300):
     mail = None
     
     try:
+        # IMAPサーバーに接続
         mail = imaplib.IMAP4_SSL(email_config['imap_server'], email_config['imap_port'])
         
         login_attempts = [email_config['email'], email_config['username']]
+        login_successful = False
+        
         for username in login_attempts:
+            logger.info(
+                f"[DEBUG] Trying IMAP login with username='{username}' "
+                f"(pwd len={len(email_config['password'])})"
+            )
             try:
                 mail.login(username, email_config['password'])
+                logger.info(f"[DEBUG] IMAP login succeeded with '{username}'")
+                login_successful = True
                 break
             except Exception as login_error:
                 logger.warning(f"{username} でのログインに失敗: {login_error}")
-        else:
+        
+        if not login_successful:
             raise ValueError("メールサーバーへのログインに失敗しました")
         
+        # INBOX を選択
         mail.select('inbox')
         
         while time.time() - start_time < max_wait_time:
-            # 最新の未読メールを検索
+            # 未読メールを検索
             _, search_data = mail.search(None, 'UNSEEN')
             
             for num in search_data[0].split():
