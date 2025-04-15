@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def is_streamlit_verification_email(email_message):
     """
     Streamlitのワンタイムコードメールであるか判定。
-    差出人が no-reply@streamlit.io で、本文中に "your one-time code is:"
+    差出人が no-reply@streamlit.io で、本文中に "your one-time code is:" 
     (大小文字問わず) が含まれていれば True とする。
     """
     try:
@@ -108,7 +108,8 @@ def extract_verification_code(email_config, max_wait_time=120):
             message_ids = unseen_data[0].split()
             logger.info(f"[DEBUG] Found UNSEEN message IDs: {message_ids}")
 
-            found_code = search_for_code_in_messages(mail, message_ids)
+            # 最新メールから順にチェックするため、reverse order でループ
+            found_code = search_for_code_in_messages(mail, list(reversed(message_ids)))
             if found_code:
                 return found_code
             
@@ -128,6 +129,11 @@ def extract_verification_code(email_config, max_wait_time=120):
     return None
 
 def search_for_code_in_messages(mail, message_ids):
+    """
+    UNSEEN のメッセージID一覧を逆順にチェックし、
+    最新の Streamlit ワンタイムコードを含むメールが見つかればコードを返す。
+    HTMLパートもチェックするため、text/plain と text/html 両方を検査。
+    """
     for num in message_ids:
         _, data = mail.fetch(num, '(RFC822)')
         raw_email = data[0][1]
@@ -145,6 +151,7 @@ def search_for_code_in_messages(mail, message_ids):
                     logger.info(f"[DEBUG] digits_found={match_digits}, length={len(match_digits)} in part={content_type}")
                     
                     if len(match_digits) >= 6:
+                        # 先頭6桁を採用（余計な数字があればログで確認）
                         code = "".join(match_digits[:6])
                         logger.info(f"検証コードを取得(スペース考慮): {code}")
                         return code
@@ -154,19 +161,17 @@ def login_to_github_if_needed(driver):
     """
     GitHubログイン画面が表示された場合にのみ、
     ユーザー名/パスワードを入力し Sign in ボタンをクリックする。
+    GitHubの認証フィールドは、Username: name="login", Password: name="password"
+    Sign in ボタンは、name="commit" として探す。
     """
-
-    # GitHub ユーザー名／パスワードを環境変数から取得
-    gh_user = os.environ.get("GIT_USERNAME", "username")
-    gh_pass = os.environ.get("GIT_PASSWORD", "password")
+    # GitHub のユーザー名／パスワードは、GitHub Secrets で設定したもの
+    gh_user = os.environ.get("GIT_USERNAME", "la-concur-helper")
+    gh_pass = os.environ.get("GIT_PASSWORD", "n@pr0001")
 
     try:
-        # URLまたは要素で「GitHubログイン画面にいる」ことを判定
-        # 例: driver.current_url に 'github.com/login' が含まれるか
         WebDriverWait(driver, 5).until(EC.url_contains("github.com/login"))
         logger.info("[DEBUG] Detected GitHub login page. Attempting to sign in...")
 
-        # Username
         username_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.NAME, "login"))
         )
@@ -174,21 +179,17 @@ def login_to_github_if_needed(driver):
         username_input.send_keys(gh_user)
         logger.info(f"[DEBUG] GitHub username '{gh_user}' を入力")
 
-        # Password
         password_input = driver.find_element(By.NAME, "password")
         password_input.clear()
         password_input.send_keys(gh_pass)
         logger.info("[DEBUG] GitHub パスワードを入力 (マスク)")
 
-        # Sign in ボタン（name="commit"）
         sign_in_button = driver.find_element(By.NAME, "commit")
         sign_in_button.click()
         logger.info("[DEBUG] GitHub 'Sign in' ボタンをクリック")
 
-        # 必要なら、2FAやリダイレクトが完了するまで待機
         WebDriverWait(driver, 15).until_not(EC.url_contains("github.com/login"))
         logger.info("[DEBUG] GitHubログイン処理完了 (or next stage).")
-
     except Exception as e:
         logger.info(f"[DEBUG] GitHub login page was not found or login not needed: {e}")
 
@@ -196,16 +197,16 @@ def login_to_streamlit(driver, email):
     """
     Streamlit へのログイン。
     ワンタイムコード入力後、自動でGitHub画面に飛んだ場合には、
-    GitHub認証を行う (login_to_github_if_needed)。
+    GitHub認証を実行する (login_to_github_if_needed)。
     """
     try:
-        # STEP 1: Sign in ボタン
+        # STEP 1: Sign in ボタンをクリック
         sign_in_button = WebDriverWait(driver, 30).until(
             EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in')]"))
         )
         sign_in_button.click()
         logger.info("Sign in ボタンをクリック")
-
+        
         driver.save_screenshot("debug_screenshot_1_signin_clicked.png")
         logger.info(f"[DEBUG] Current URL after Sign in click: {driver.current_url}")
 
@@ -216,10 +217,10 @@ def login_to_streamlit(driver, email):
         email_input.clear()
         email_input.send_keys(email)
         logger.info(f"メールアドレス '{email}' を入力")
-
+        
         driver.save_screenshot("debug_screenshot_2_email_input.png")
 
-        # STEP 3: Continueボタン→ワンタイムコード送信
+        # STEP 3: Continueボタン → ワンタイムコード送信 (Continueボタンは一度だけ押す)
         continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
         continue_button.click()
         logger.info("Continueボタンをクリックしてワンタイムコード送信")
@@ -233,7 +234,6 @@ def login_to_streamlit(driver, email):
             EC.presence_of_all_elements_located((By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']"))
         )
         logger.info("ワンタイムコード入力欄が表示されました")
-
         driver.save_screenshot("debug_screenshot_4_code_input_appeared.png")
 
         # STEP 5: メールからコードを取得
@@ -253,7 +253,7 @@ def login_to_streamlit(driver, email):
         driver.save_screenshot("debug_screenshot_5_after_code_filled.png")
         logger.info("[DEBUG] Code input done. Waiting for auto login...")
 
-        # STEP 6.5: GitHubログインが必要なら実行
+        # STEP 6.5: GitHubログインが必要な場合は自動処理
         login_to_github_if_needed(driver)
 
         # STEP 7: 最終的に streamlit.app へ遷移するのを待機
@@ -261,7 +261,6 @@ def login_to_streamlit(driver, email):
             EC.url_contains("streamlit.app")
         )
         logger.info("ログイン成功！")
-
         driver.save_screenshot("debug_screenshot_6_login_success.png")
         logger.info(f"[DEBUG] Final URL: {driver.current_url}")
 
@@ -282,9 +281,7 @@ def visit_streamlit_app(url, email):
     try:
         driver.get(url)
         logger.info(f"URLにアクセス: {url}")
-        
         driver.save_screenshot("debug_screenshot_0_initial.png")
-
         login_to_streamlit(driver, email)
         time.sleep(10)
         driver.save_screenshot('screenshot_after_login.png')
