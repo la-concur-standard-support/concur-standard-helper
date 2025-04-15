@@ -170,8 +170,9 @@ def search_for_code_in_messages(mail, message_ids):
 
 def login_to_streamlit(driver, email):
     """
-    Streamlit へのログインフローをデバッグしやすくするために、
-    各ステップでスクリーンショットを撮り、画面URL等をログ出力する。
+    Streamlit へのログインフロー。
+    「ワンタイムコード入力後」は自動でログイン処理が進むため、
+    "Continue" ボタンを押す手順は削除している。
     """
     try:
         # --- STEP 1: Sign inボタンをクリック ---
@@ -225,29 +226,27 @@ def login_to_streamlit(driver, email):
         else:
             raise ValueError(f"入力フィールドが {len(code_inputs)} 個あるため想定外")
 
+        # ★ ここで「Continue」ボタンをクリックする処理を削除/コメントアウト
+        # driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]").click()
+        # logger.info("ワンタイムコード入力後のContinueボタンをクリック")
+
         driver.save_screenshot("debug_screenshot_5_after_code_filled.png")
+        logger.info("[DEBUG] Code input done. Waiting for auto login...")
 
-        # --- STEP 7: コード入力後のContinueをクリック ---
-        confirm_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
-        confirm_button.click()
-        logger.info("ワンタイムコード入力後のContinueボタンをクリック")
-
-        driver.save_screenshot("debug_screenshot_6_after_code_continue.png")
-        logger.info(f"[DEBUG] Current URL after code submission: {driver.current_url}")
-
-        # --- STEP 8: ログイン完了 (streamlit.app へ遷移するのを待機) ---
+        # --- STEP 7: 自動でログインが進むのを待機 (streamlit.app に遷移) ---
         WebDriverWait(driver, 40).until(
             EC.url_contains("streamlit.app")
         )
         logger.info("ログイン成功！")
 
-        driver.save_screenshot("debug_screenshot_7_login_success.png")
+        driver.save_screenshot("debug_screenshot_6_login_success.png")
         logger.info(f"[DEBUG] Final URL: {driver.current_url}")
 
     except Exception as e:
         logger.error(f"ログイン中にエラーが発生: {e}")
         driver.save_screenshot('screenshot_login_error.png')
         raise
+
 
 def visit_streamlit_app(url, email):
     options = Options()
@@ -276,6 +275,7 @@ def visit_streamlit_app(url, email):
         driver.quit()
         logger.info("ブラウザを閉じました")
 
+
 def main():
     email_config = get_email_config()
     streamlit_apps = [
@@ -288,6 +288,7 @@ def main():
             logger.error(f"{app_url} の訪問中にエラー発生: {e}")
         time.sleep(5)
 
+
 if __name__ == '__main__':
     start_time = time.time()
     logger.info("Keep-Alive ジョブ開始")
@@ -296,4 +297,3 @@ if __name__ == '__main__':
     
     end_time = time.time()
     logger.info(f"Keep-Alive ジョブ終了 (所要時間: {end_time - start_time:.2f}秒)")
-    
