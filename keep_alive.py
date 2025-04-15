@@ -65,9 +65,6 @@ def visit_streamlit_app(url, email=None, password=None):
         driver.get(url)
         logger.info(f"ページタイトル: {driver.title}")
         
-        # スクリーンショット撮影 (デバッグ用)
-        # driver.save_screenshot('screenshot_initial.png')
-        
         # プライベートアプリでログインが必要な場合
         if email and password:
             try:
@@ -83,7 +80,9 @@ def visit_streamlit_app(url, email=None, password=None):
                     )
                     logger.info("ログインボタンが見つかりました。ログイン処理を開始します。")
                 except Exception as e:
-                    logger.info(f"ログインボタンが見つかりません: {e}")
+                    # エラーメッセージをシンプルにする
+                    error_message = str(e).split('\n')[0] if str(e) else "タイムアウト"
+                    logger.info(f"ログインボタンが見つかりません: {error_message}")
                     logger.info("ログインは不要かすでにログイン済みの可能性があります。処理を続行します。")
                 
                 # ログインボタンが見つかった場合のみログイン処理を実行
@@ -121,7 +120,9 @@ def visit_streamlit_app(url, email=None, password=None):
                 driver.save_screenshot('screenshot_after_login.png')
                 logger.info("ログイン後のスクリーンショット撮影")
             except Exception as e:
-                logger.warning(f"ログイン処理中にエラー発生: {e}")
+                # エラーメッセージをシンプルにする
+                error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
+                logger.warning(f"ログイン処理中にエラー発生: {error_message}")
                 logger.info("ログインに失敗しましたが、処理を続行します。")
                 # エラー時のスクリーンショット
                 driver.save_screenshot('screenshot_login_error.png')
@@ -130,12 +131,13 @@ def visit_streamlit_app(url, email=None, password=None):
         # アプリが読み込まれるまで待機
         time.sleep(15)
         
-        # スクリーンショット撮影 (デバッグ用)
-        # driver.save_screenshot('screenshot_loaded.png')
-        
-        # 読み込まれた時の情報収集
+        # ページソースのサイズを取得してログ出力
         page_source_length = len(driver.page_source)
         logger.info(f"ページソース長: {page_source_length} bytes")
+        
+        # 最終確認のスクリーンショット
+        driver.save_screenshot('screenshot_final.png')
+        logger.info("最終確認のスクリーンショット撮影")
         
         # 追加の待機時間 (アプリの完全ロード用)
         time.sleep(10)
@@ -143,13 +145,30 @@ def visit_streamlit_app(url, email=None, password=None):
         logger.info(f"訪問成功: {url}")
         
     except Exception as e:
-        logger.error(f"エラー発生: {e}", exc_info=True)
+        # エラーメッセージをシンプルにする
+        error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
+        logger.error(f"エラー発生: {error_message}")
+        
+        # エラー詳細は必要な場合のみ出力
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"詳細エラー情報:", exc_info=True)
+        
+        # エラー時のスクリーンショット
+        if 'driver' in locals() and driver:
+            try:
+                driver.save_screenshot('screenshot_error.png')
+                logger.info("エラー時のスクリーンショット撮影")
+            except:
+                pass
     
     finally:
         # ブラウザを閉じる
-        if 'driver' in locals():
-            driver.quit()
-            logger.info("ブラウザを閉じました")
+        if 'driver' in locals() and driver:
+            try:
+                driver.quit()
+                logger.info("ブラウザを閉じました")
+            except Exception as e:
+                logger.warning(f"ブラウザを閉じる際にエラーが発生: {e}")
 
 def main():
     """
