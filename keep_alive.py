@@ -10,7 +10,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
+
+# 環境変数 LANG の設定（GitHub Actions の環境でも適用されるように）
+os.environ["LANG"] = "ja_JP.UTF-8"
+os.environ["LC_ALL"] = "ja_JP.UTF-8"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +71,8 @@ def login_imap(email_config):
             logger.info(f"[DEBUG] IMAP login succeeded with '{username}'")
             return mail
         except Exception as e:
-            logger.warning(f"{username} でのIMAPログイン失敗: {e}")
+            # ログレベルをWARNINGからDEBUGに下げてノイズを減らす
+            logger.debug(f"{username} でのIMAPログイン失敗: {e}")
     raise ValueError("メールサーバーへのIMAPログインに失敗しました")
 
 def extract_streamlit_code(mail, max_wait_time=120):
@@ -147,7 +153,9 @@ def login_to_github_if_needed(driver):
     try:
         WebDriverWait(driver, 5).until(EC.url_contains("github.com/login"))
         logger.info("Detected GitHub login page. Attempting to sign in...")
-        username_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "login")))
+        username_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.NAME, "login"))
+        )
         username_input.clear()
         username_input.send_keys(gh_user)
         logger.info(f"[DEBUG] GitHub username '{gh_user}' を入力")
@@ -179,13 +187,19 @@ def handle_github_device_verification(driver):
         otp_field.send_keys(device_code)
         logger.info(f"GitHub デバイス認証コードを入力: {device_code}")
         # 修正：Verify ボタンは "Verify" というテキストから探す
-        verify_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Verify')]")
-        verify_btn.click()
-        logger.info("GitHub Device Verification: Verifyボタンをクリック")
+        try:
+            verify_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Verify')]")
+            verify_btn.click()
+            logger.info("GitHub Device Verification: Verifyボタンをクリック")
+        except NoSuchElementException:
+            logger.info("Verifyボタンが見つからなかったため、デバイス認証は不要と判断します。")
+            return
         WebDriverWait(driver, 30).until_not(EC.url_contains("challenge"))
         logger.info("GitHubデバイス認証が完了しました。")
+    except NoSuchElementException:
+        logger.info("GitHubデバイス認証ページが見つからなかったため、認証は不要です。")
     except Exception as e:
-        logger.info(f"Device verification page not found or not needed: {e}")
+        logger.error(f"Device verification中に予期せぬエラーが発生: {e}")
 
 def login_to_streamlit(driver, email):
     try:
@@ -219,7 +233,7 @@ def login_to_streamlit(driver, email):
         else:
             raise ValueError(f"入力フィールド数が不正: {len(code_inputs)}")
         login_to_github_if_needed(driver)
-        # ★ここで、ログイン後に管理画面に遷移してしまう場合は、明示的にアプリURLに再アクセスする
+        # ★ログイン後に管理画面に遷移してしまう場合は、明示的にアプリURLに再アクセスする
         driver.get("https://concur-dev-support.streamlit.app/")
         logger.info("アプリURLに再アクセスして、実際のアプリ画面を表示")
         WebDriverWait(driver, 60).until(EC.url_contains("streamlit.app"))
@@ -234,6 +248,9 @@ def visit_streamlit_app(url, email):
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # 日本語表示のための言語設定を追加
+    options.add_argument('--lang=ja-JP')
+    
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     try:
