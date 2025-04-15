@@ -18,297 +18,291 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --------------------------------------------------
-# 1) Streamlitのワンタイムコード検出
-# --------------------------------------------------
-def is_streamlit_verification_email(email_message):
+###############################################################################
+# Streamlitワンタイムコード判定
+###############################################################################
+def is_streamlit_verification_email(msg):
     """
-    差出人が no-reply@streamlit.io で、
-    本文に "your one-time code is:" が含まれるか判定
+    Streamlit のワンタイムコードメール:
+    送信元 no-reply@streamlit.io ＆ 本文に "your one-time code is:" を含む
     """
     try:
-        from_address = email_message.get('from', '')
-        from_header = email_message.get('From', '')
+        from_address = msg.get('from', '')
+        from_header = msg.get('From', '')
         if 'no-reply@streamlit.io' not in from_address.lower() and 'no-reply@streamlit.io' not in from_header.lower():
             return False
         
-        for part in email_message.walk():
+        for part in msg.walk():
             if part.get_content_type() == 'text/plain':
-                body_raw = part.get_payload(decode=True).decode(errors='replace')
-                if "your one-time code is:" in body_raw.lower():
+                body_raw = part.get_payload(decode=True).decode(errors='replace').lower()
+                if "your one-time code is:" in body_raw:
                     return True
-
     except Exception as e:
-        logger.warning(f"メール検証中にエラー: {e}")
+        logger.warning(f"Streamlit判定中にエラー: {e}")
     return False
 
-def is_github_device_verification_email(email_message):
+###############################################################################
+# GitHubデバイス認証メール判定
+###############################################################################
+def is_github_device_verification_email(msg):
     """
-    差出人が no-reply@github.com で、
-    本文に "Device verification code:" が含まれるか判定
+    GitHub の Device verification メール:
+    送信元 no-reply@github.com ＆ 本文に "Verification code: " を含む
+    (大文字小文字不問)
     """
     try:
-        from_address = email_message.get('from', '')
-        from_header = email_message.get('From', '')
+        from_address = msg.get('from', '')
+        from_header = msg.get('From', '')
         if 'no-reply@github.com' not in from_address.lower() and 'no-reply@github.com' not in from_header.lower():
             return False
-
-        for part in email_message.walk():
+        
+        for part in msg.walk():
             if part.get_content_type() == 'text/plain':
-                body_raw = part.get_payload(decode=True).decode(errors='replace')
-                if "device verification code:" in body_raw.lower():
+                body_raw = part.get_payload(decode=True).decode(errors='replace').lower()
+                if "verification code:" in body_raw:
                     return True
-
     except Exception as e:
-        logger.warning(f"メール検証中にエラー: {e}")
+        logger.warning(f"GitHubデバイス判定中にエラー: {e}")
     return False
 
+###############################################################################
+# メール接続共通
+###############################################################################
 def get_email_config():
-    """
-    環境変数からメール接続情報を取得
-    """
-    config = {
+    return {
         'email': os.environ.get('STREAMLIT_EMAIL', ''),
         'password': os.environ.get('STREAMLIT_EMAIL_PASSWORD', ''),
         'imap_server': os.environ.get('EMAIL_IMAP_SERVER', 'mas22.kagoya.net'),
         'imap_port': int(os.environ.get('EMAIL_IMAP_PORT', 993)),
         'username': os.environ.get('EMAIL_USERNAME', '')
     }
-    return config
 
-def login_imap(email_config):
-    """
-    IMAPログインを試みる（username/emailの順で複数試行）
-    """
-    mail = imaplib.IMAP4_SSL(email_config['imap_server'], email_config['imap_port'])
-    login_attempts = [email_config['email'], email_config['username']]
-    for username in login_attempts:
+def login_imap(email_conf):
+    mail = imaplib.IMAP4_SSL(email_conf['imap_server'], email_conf['imap_port'])
+    # username or email でログイン試行
+    for username in [email_conf['email'], email_conf['username']]:
         try:
-            mail.login(username, email_config['password'])
+            mail.login(username, email_conf['password'])
             logger.info(f"[DEBUG] IMAP login succeeded with '{username}'")
             return mail
         except Exception as e:
-            logger.warning(f"{username} でのログインに失敗: {e}")
-    raise ValueError("メールサーバーへのログインに失敗しました")
+            logger.warning(f"{username} でのIMAPログイン失敗: {e}")
+    raise ValueError("IMAPログインに失敗しました")
 
-def extract_streamlit_code(mail, max_wait_time=120):
-    """
-    UNSEENメールから最新の Streamlit ワンタイムコードを拾う
-    """
+###############################################################################
+# Streamlit ワンタイムコード抽出
+###############################################################################
+def extract_streamlit_code(mail, max_wait=120):
     start_time = time.time()
     mail.select('inbox')
-    while time.time() - start_time < max_wait_time:
-        logger.info("[DEBUG] Searching UNSEEN mails for Streamlit code...")
+    while time.time() - start_time < max_wait:
+        logger.info("[DEBUG] Searching UNSEEN for Streamlit code...")
         _, unseen_data = mail.search(None, 'UNSEEN')
-        message_ids = unseen_data[0].split()
-        logger.info(f"[DEBUG] Found UNSEEN message IDs: {message_ids}")
-
-        code = search_for_streamlit_code_in_messages(mail, reversed(message_ids))
+        msg_ids = unseen_data[0].split()
+        logger.info(f"[DEBUG] Found UNSEEN msg_ids: {msg_ids}")
+        code = search_streamlit_msgs(mail, reversed(msg_ids))
         if code:
             return code
-        time.sleep(10)
+        time.sleep(5)
     return None
 
-def search_for_streamlit_code_in_messages(mail, message_ids):
-    for num in message_ids:  # 最新メールを先にチェック
+def search_streamlit_msgs(mail, msg_ids):
+    for num in msg_ids:
         _, data = mail.fetch(num, '(RFC822)')
         raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        if is_streamlit_verification_email(email_message):
-            logger.info("Streamlitからのワンタイムコードメールを発見 (UNSEEN)")
-            return parse_streamlit_code(email_message)
+        msg = email.message_from_bytes(raw_email)
+        if is_streamlit_verification_email(msg):
+            logger.info("Streamlitワンタイムコードメールを検出")
+            return parse_streamlit_code(msg)
     return None
 
-def parse_streamlit_code(email_message):
-    """
-    メール本文から6桁の数字を抜き出して返す
-    """
-    for part in email_message.walk():
+def parse_streamlit_code(msg):
+    # 6桁数字を先頭6桁返す
+    for part in msg.walk():
         if part.get_content_type() in ('text/plain', 'text/html'):
             body = part.get_payload(decode=True).decode(errors='replace')
-            match_digits = re.findall(r'\d', body)
-            logger.info(f"[DEBUG] digits_found={match_digits}, length={len(match_digits)}")
-            if len(match_digits) >= 6:
-                code = "".join(match_digits[:6])
-                logger.info(f"Streamlit検証コード(先頭6桁)を取得: {code}")
+            digits = re.findall(r'\d', body)
+            logger.info(f"[DEBUG] digits_found={digits}")
+            if len(digits) >= 6:
+                code = "".join(digits[:6])
+                logger.info(f"Streamlit code: {code}")
                 return code
     return None
 
-def extract_github_device_code(mail, max_wait_time=120):
-    """
-    UNSEENメールから最新の GitHub Device verification code を拾う
-    """
+###############################################################################
+# GitHub Device Verification code 抽出
+###############################################################################
+def extract_github_device_code(mail, max_wait=120):
     start_time = time.time()
     mail.select('inbox')
-    while time.time() - start_time < max_wait_time:
-        logger.info("[DEBUG] Searching UNSEEN mails for GitHub device code...")
+    while time.time() - start_time < max_wait:
+        logger.info("[DEBUG] Searching UNSEEN for GitHub device code...")
         _, unseen_data = mail.search(None, 'UNSEEN')
-        message_ids = unseen_data[0].split()
-        logger.info(f"[DEBUG] Found UNSEEN message IDs: {message_ids}")
-
-        code = search_for_github_device_code_in_messages(mail, reversed(message_ids))
+        msg_ids = unseen_data[0].split()
+        logger.info(f"[DEBUG] Found UNSEEN for GitHub code: {msg_ids}")
+        code = search_github_msgs(mail, reversed(msg_ids))
         if code:
             return code
-        time.sleep(10)
+        time.sleep(5)
     return None
 
-def search_for_github_device_code_in_messages(mail, message_ids):
-    for num in message_ids:
+def search_github_msgs(mail, msg_ids):
+    for num in msg_ids:
         _, data = mail.fetch(num, '(RFC822)')
         raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-
-        if is_github_device_verification_email(email_message):
-            logger.info("GitHubデバイス認証メールを発見 (UNSEEN)")
-            return parse_github_device_code(email_message)
+        msg = email.message_from_bytes(raw_email)
+        if is_github_device_verification_email(msg):
+            logger.info("GitHubデバイス認証メールを検出")
+            return parse_github_code(msg)
     return None
 
-def parse_github_device_code(email_message):
+def parse_github_code(msg):
     """
-    "Device verification code:" 行から6桁の数字を取得して返す
+    'Verification code: 123456' という形を正規表現で探す
     """
-    for part in email_message.walk():
+    for part in msg.walk():
         if part.get_content_type() in ('text/plain', 'text/html'):
             body = part.get_payload(decode=True).decode(errors='replace').lower()
-            match = re.search(r'device verification code:\s*([0-9]{6})', body)
-            if match:
-                code = match.group(1)
-                logger.info(f"GitHubデバイス認証コードを取得: {code}")
+            m = re.search(r'verification code:\s*([0-9]{6})', body)
+            if m:
+                code = m.group(1)
+                logger.info(f"GitHubデバイスコード: {code}")
                 return code
     return None
 
+###############################################################################
+# GitHubログイン
+###############################################################################
 def login_to_github_if_needed(driver):
-    """
-    GitHubログイン（username / password）。成功後にデバイス認証を求められたら handle_github_device_verification。
-    """
     gh_user = os.environ.get("GIT_USERNAME", "la-concur-helper")
     gh_pass = os.environ.get("GIT_PASSWORD", "n@pr0001")
 
     try:
         WebDriverWait(driver, 5).until(EC.url_contains("github.com/login"))
-        logger.info("Detected GitHub login page. Attempting to sign in...")
+        logger.info("GitHubログイン画面を検知 => ログイン開始")
 
-        username_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "login")))
-        username_input.clear()
-        username_input.send_keys(gh_user)
-        logger.info(f"GitHub username '{gh_user}' を入力")
+        # Username
+        user_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "login")))
+        user_input.clear()
+        user_input.send_keys(gh_user)
+        logger.info(f"[DEBUG] GIT_USERNAME='{gh_user}' 入力")
 
-        password_input = driver.find_element(By.NAME, "password")
-        password_input.clear()
-        password_input.send_keys(gh_pass)
-        logger.info("GitHub パスワードを入力 (マスク)")
+        # Password
+        pass_input = driver.find_element(By.NAME, "password")
+        pass_input.clear()
+        pass_input.send_keys(gh_pass)
+        logger.info("[DEBUG] GIT_PASSWORD(マスク) 入力")
 
-        sign_in_button = driver.find_element(By.NAME, "commit")
-        sign_in_button.click()
-        logger.info("GitHub 'Sign in' ボタンをクリック")
+        # Sign in ボタン
+        sign_in_btn = driver.find_element(By.NAME, "commit")
+        sign_in_btn.click()
+        logger.info("Sign in ボタンをクリック")
 
+        # ログインページから抜けるまで最大15秒待機
         WebDriverWait(driver, 15).until_not(EC.url_contains("github.com/login"))
-        logger.info("GitHubログイン処理完了(または次ステップに遷移)")
-        handle_github_device_verification(driver)  # ここでデバイス認証があれば対応
+        logger.info("GitHubログイン完了 or 次の段階へ")
+        handle_github_device_challenge(driver)
+
     except Exception as e:
         logger.info(f"GitHub login page was not found or not needed: {e}")
 
-def handle_github_device_verification(driver):
+def handle_github_device_challenge(driver):
     """
-    GitHubのデバイス認証 (Device verification code) 入力を要求されたらメールからコードを取得し、入力。
+    GitHub のデバイス認証画面があれば、メールを再度確認して code 入力
     """
     try:
-        # GitHubのデバイス認証画面: name="otp" などがある想定
-        device_input = WebDriverWait(driver, 3).until(
-            EC.presence_of_element_located((By.NAME, "otp"))
-        )
-        logger.info("Detected GitHub Device Verification page. Retrieving code from email...")
+        # Device verification: name="otp" フィールドを3秒待機
+        otp_field = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.NAME, "otp")))
+        logger.info("GitHub Device Verification画面を検知 => メールからcode取得")
 
-        # メールからデバイス認証コードを再取得
-        email_config = get_email_config()
-        mail = login_imap(email_config)
+        # IMAPログインし直して, GitHub Device codeを取得
+        email_conf = get_email_config()
+        mail = login_imap(email_conf)
         device_code = extract_github_device_code(mail)
         if not device_code:
-            raise ValueError("GitHubデバイス認証コードを取得できませんでした")
+            raise ValueError("GitHub Device code not found in mail")
 
-        device_input.clear()
-        device_input.send_keys(device_code)
-        logger.info(f"GitHub デバイス認証コードを入力: {device_code}")
+        otp_field.clear()
+        otp_field.send_keys(device_code)
+        logger.info(f"Device code {device_code} 入力")
 
-        # 送信ボタン: たとえば、//button[@type='submit'] or name="commit"
-        submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
-        submit_btn.click()
-        logger.info("デバイス認証コードの Verify ボタンをクリック")
+        # Verify ボタンを押す (type=submit)
+        verify_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+        verify_btn.click()
+        logger.info("Device code Verifyボタンをクリック")
 
-        # 認証完了を待機
-        WebDriverWait(driver, 20).until_not(EC.url_contains("challenge"))
-        logger.info("GitHubデバイス認証が完了しました。")
+        # challenge ページを脱出するまで待つ
+        WebDriverWait(driver, 30).until_not(EC.url_contains("challenge"))
+        logger.info("GitHub Device Verification完了")
 
     except Exception as e:
-        logger.info(f"Device verification page not found or not needed: {e}")
+        logger.info(f"Device verification page not found or skipping: {e}")
 
-def login_to_streamlit(driver, email):
+###############################################################################
+# Streamlitログイン
+###############################################################################
+def login_to_streamlit(driver, email_address):
     """
-    Streamlit へのログイン: 
-    1) Continueボタン一度押す
-    2) ワンタイムコードを入力 
-    3) GitHubログインが出れば username/password 入力→デバイス認証があれば対応
+    1) "Sign in" ボタンクリック
+    2) メールアドレス入力 -> "Continue" -> Streamlitワンタイムコード
+    3) GitHubログイン画面なら username/password
+    4) デバイス認証画面なら mailから code 再取得 -> Verify
     """
     try:
-        # Sign in ボタンをクリック(一度だけ)
-        sign_in_button = WebDriverWait(driver, 30).until(
+        # Sign in ボタン (一度だけ)
+        sign_in_btn = WebDriverWait(driver, 30).until(
             EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in')]"))
         )
-        sign_in_button.click()
+        sign_in_btn.click()
         logger.info("Sign in ボタンをクリック")
 
-        # メールアドレス入力
-        email_input = WebDriverWait(driver, 30).until(
+        # メールアドレス
+        mail_field = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'][name='email']"))
         )
-        email_input.clear()
-        email_input.send_keys(email)
-        logger.info(f"メールアドレス '{email}' を入力")
+        mail_field.clear()
+        mail_field.send_keys(email_address)
+        logger.info(f"メール '{email_address}' を入力")
 
-        # Continueボタン: 一度だけ
-        continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
-        continue_button.click()
+        # Continueボタン
+        cont_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
         logger.info("ワンタイムコード送信用の Continueボタンをクリック(一度だけ)")
-
+        cont_btn.click()
         time.sleep(2)
 
-        # ワンタイムコード入力フィールドを待機
+        # ワンタイムコード入力欄
         code_inputs = WebDriverWait(driver, 30).until(
             EC.presence_of_all_elements_located((By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']"))
         )
 
-        # メール経由でワンタイムコード取得
-        email_config = get_email_config()
-        mail = login_imap(email_config)
-        verification_code = extract_streamlit_code(mail)
-
-        if not verification_code:
+        # メールでワンタイムコード取得
+        email_conf = get_email_config()
+        mail = login_imap(email_conf)
+        st_code = extract_streamlit_code(mail)
+        if not st_code:
             raise ValueError("Streamlitワンタイムコードを取得できませんでした")
 
-        # コード6桁を入力
+        # コード入力
         if len(code_inputs) == 6:
-            for i, digit in enumerate(verification_code):
+            for i, digit in enumerate(st_code):
                 code_inputs[i].send_keys(digit)
-            logger.info(f"ワンタイムコードを入力: {verification_code}")
+            logger.info(f"ワンタイムコードを入力: {st_code}")
         else:
-            raise ValueError(f"入力フィールド数が不正: {len(code_inputs)}")
+            raise ValueError(f"入力欄が {len(code_inputs)} 個。想定外")
 
-        # GitHubログインが出る場合は自動処理
+        # GitHubログインがあれば自動処理
         login_to_github_if_needed(driver)
 
-        # 最終的に streamlit.app へ遷移
-        WebDriverWait(driver, 60).until(
-            EC.url_contains("streamlit.app")
-        )
+        # 最終的に streamlit.app へリダイレクトされるのを待つ
+        WebDriverWait(driver, 60).until(EC.url_contains("streamlit.app"))
         logger.info("Streamlitログイン成功")
 
     except Exception as e:
         logger.error(f"ログイン中にエラー: {e}")
-        driver.save_screenshot('screenshot_login_error.png')
+        driver.save_screenshot("screenshot_login_error.png")
         raise
 
-def visit_streamlit_app(url, email):
+def visit_streamlit_app(url, email_address):
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -320,33 +314,32 @@ def visit_streamlit_app(url, email):
     try:
         driver.get(url)
         logger.info(f"URLにアクセス: {url}")
-        driver.save_screenshot("debug_screenshot_0_initial.png")
 
-        login_to_streamlit(driver, email)
+        login_to_streamlit(driver, email_address)
         time.sleep(5)
-        driver.save_screenshot('screenshot_after_login.png')
+        driver.save_screenshot("screenshot_after_login.png")
         logger.info("ログイン後のスクリーンショットを保存")
+
     except Exception as e:
         logger.error(f"{url} の訪問中にエラー: {e}")
-        driver.save_screenshot('screenshot_error.png')
+        driver.save_screenshot("screenshot_error.png")
         raise
+
     finally:
         driver.quit()
         logger.info("ブラウザを閉じました")
 
 def main():
-    email_config = get_email_config()
-    # メールアドレスは keep-alive 用に secrets から取得済み
-    target_email = email_config['email']
-    if not target_email:
-        raise ValueError("STREAMLIT_EMAIL が設定されていないため、メールアドレス不明")
+    email_conf = get_email_config()
+    if not email_conf['email']:
+        raise ValueError("STREAMLIT_EMAIL が未設定です")
 
-    streamlit_apps = ["https://concur-dev-support.streamlit.app/"]
-    for app_url in streamlit_apps:
+    urls = ["https://concur-dev-support.streamlit.app/"]
+    for u in urls:
         try:
-            visit_streamlit_app(app_url, target_email)
+            visit_streamlit_app(u, email_conf['email'])
         except Exception as e:
-            logger.error(f"{app_url} の訪問中にエラー: {e}")
+            logger.error(f"{u} の訪問中にエラー: {e}")
         time.sleep(5)
 
 if __name__ == '__main__':
@@ -354,5 +347,4 @@ if __name__ == '__main__':
     logger.info("Keep-Alive ジョブ開始")
     main()
     end_time = time.time()
-    duration = end_time - start_time
-    logger.info(f"Keep-Alive ジョブ終了 (所要時間: {duration:.2f}秒)")
+    logger.info(f"Keep-Alive ジョブ終了 (所要時間: {end_time - start_time:.2f}秒)")
