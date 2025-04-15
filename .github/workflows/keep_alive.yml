@@ -26,8 +26,10 @@ jobs:
       - name: Run keep-alive script
         run: python keep_alive.py
         env:
-          STREAMLIT_PASSWORD: ${{ secrets.STREAMLIT_PASSWORD }}
           STREAMLIT_EMAIL: ${{ secrets.STREAMLIT_EMAIL }}
+          STREAMLIT_EMAIL_PASSWORD: ${{ secrets.STREAMLIT_EMAIL_PASSWORD }}
+          EMAIL_IMAP_SERVER: mas22.kagoya.net
+          EMAIL_USERNAME: libertas.kishiyaman
       
       - name: Upload screenshots as artifacts
         uses: actions/upload-artifact@v4

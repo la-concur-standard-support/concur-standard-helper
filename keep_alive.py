@@ -1,20 +1,15 @@
-#!/usr/bin/env python3
-"""
-Streamlit アプリ Keep-Alive スクリプト
-GitHub Actions で定期実行し、Streamlit アプリを活性化し続けるためのスクリプト
-"""
-
 import os
+import imaplib
+import email
+import re
 import time
 import logging
-import requests
-from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ログの設定
@@ -24,257 +19,230 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def visit_streamlit_app(url, email=None, password=None):
+def get_email_config():
     """
-    Streamlit アプリにアクセスする関数
+    メール設定を環境変数から安全に取得
     
-    Parameters:
-    - url: アクセス先の Streamlit アプリの URL
-    - email: Streamlit ログイン用メールアドレス (プライベートアプリの場合)
-    - password: Streamlit ログイン用パスワード (プライベートアプリの場合)
+    Returns:
+        dict: メール設定情報
+    """
+    # 環境変数から設定を取得（デフォルト値は空文字）
+    config = {
+        'email': os.environ.get('STREAMLIT_EMAIL', ''),
+        'password': os.environ.get('STREAMLIT_EMAIL_PASSWORD', ''),
+        'imap_server': os.environ.get('EMAIL_IMAP_SERVER', 'mas22.kagoya.net'),
+        'imap_port': int(os.environ.get('EMAIL_IMAP_PORT', 993)),
+        'username': os.environ.get('EMAIL_USERNAME', '')
+    }
+    
+    # 必須パラメータの検証
+    required_params = ['email', 'password', 'imap_server']
+    for param in required_params:
+        if not config[param]:
+            logger.error(f"{param.upper()}が設定されていません")
+            raise ValueError(f"{param.upper()}は環境変数で設定する必要があります")
+    
+    return config
+
+def extract_verification_code(email_config, max_wait_time=300):
+    """
+    IMAPを使用してStreamlitのワンタイムコードを取得
+    
+    Args:
+        email_config: メール設定情報の辞書
+        max_wait_time: 最大待機時間（秒）
+    
+    Returns:
+        検証コード（文字列）またはNone
+    """
+    start_time = time.time()
+    
+    try:
+        # IMAPサーバーに接続
+        mail = imaplib.IMAP4_SSL(
+            email_config['imap_server'], 
+            email_config['imap_port']
+        )
+        
+        # ログイン（複数の認証方法を試行）
+        login_attempts = [
+            email_config['email'],  # フルメールアドレス
+            email_config['username'],  # ユーザー名
+        ]
+        
+        login_successful = False
+        for username in login_attempts:
+            try:
+                mail.login(username, email_config['password'])
+                login_successful = True
+                break
+            except Exception as login_error:
+                logger.warning(f"{username}でのログインに失敗: {login_error}")
+        
+        if not login_successful:
+            raise ValueError("メールサーバーへのログインに失敗しました")
+        
+        mail.select('inbox')
+        
+        logger.info("メールボックスを検索中...")
+        
+        while time.time() - start_time < max_wait_time:
+            # 最新の未読メールを検索
+            _, search_data = mail.search(None, 'UNSEEN')
+            
+            for num in search_data[0].split():
+                _, data = mail.fetch(num, '(RFC822)')
+                raw_email = data[0][1]
+                email_message = email.message_from_bytes(raw_email)
+                
+                # Streamlitからのメールを確認
+                if ('Streamlit Community Cloud' in str(email_message['subject']) or 
+                    'streamlit.io' in str(email_message.get('from', ''))):
+                    logger.info("Streamlitからのメールを発見")
+                    
+                    # メール本文から6桁のコードを抽出
+                    for part in email_message.walk():
+                        if part.get_content_type() == 'text/plain':
+                            body = part.get_payload(decode=True).decode()
+                            
+                            # 6桁の数字コードを抽出
+                            match = re.search(r'\b(\d{6})\b', body)
+                            if match:
+                                verification_code = match.group(1)
+                                logger.info("検証コードを取得しました")
+                                mail.close()
+                                mail.logout()
+                                return verification_code
+            
+            # 少し待機してから再試行
+            time.sleep(10)
+        
+        logger.warning("指定時間内にコードを見つけられませんでした")
+    except Exception as e:
+        logger.error(f"メール検索中にエラーが発生: {e}")
+    
+    finally:
+        try:
+            mail.close()
+            mail.logout()
+        except:
+            pass
+    
+    return None
+
+def login_to_streamlit(driver, email):
+    """
+    Streamlitログインプロセス全体を処理
+    
+    Args:
+        driver: WebDriverインスタンス
+        email: Streamlitログインメールアドレス
     """
     try:
-        logger.info(f"訪問開始: {url}")
+        # メールアドレス入力
+        email_input = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, ".rt-TextFieldRoot.rt-r-size-3.rt-variant-surface input[type='email']"))
+        )
+        email_input.clear()
+        email_input.send_keys(email)
+        logger.info(f"メールアドレス '{email}' を入力")
         
-        # リクエストでアプリの存在確認 (初期チェック)
-        try:
-            response = requests.get(url, timeout=30)
-            logger.info(f"初期アクセスステータス: {response.status_code}")
-        except requests.RequestException as e:
-            logger.warning(f"初期アクセス失敗: {e}")
+        # Continueボタンクリック
+        continue_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
+        continue_button.click()
+        logger.info("Continueボタンをクリック")
         
-        # ヘッドレスChromeの設定
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')  # 大きな画面サイズを設定
+        # コード入力フィールドが読み込まれるまで待機
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_all_elements_located((By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']"))
+        )
+        logger.info("コード入力ページに遷移")
         
-        # User-Agentの設定
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
+        # メールからコードを取得
+        email_config = get_email_config()
+        verification_code = extract_verification_code(email_config)
         
-        # ChromeDriverのセットアップ
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        if not verification_code:
+            raise ValueError("ワンタイムコードの取得に失敗しました")
         
-        # タイムアウトを設定
-        driver.set_page_load_timeout(60)
-        driver.implicitly_wait(10)
+        # ワンタイムコード入力フィールドを取得
+        code_inputs = driver.find_elements(By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']")
         
-        # URLにアクセス
+        # 6桁のコードを入力
+        if len(code_inputs) == 6:
+            for i, digit in enumerate(verification_code):
+                code_inputs[i].send_keys(digit)
+            logger.info("検証コードを入力")
+        else:
+            logger.warning(f"予期しない数の入力フィールド: {len(code_inputs)}")
+            raise ValueError(f"入力フィールドの数が不正です: {len(code_inputs)}")
+        
+        # 最終的なログインボタン
+        login_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
+        login_button.click()
+        logger.info("ログインボタンをクリック")
+        
+        # ログイン後の状態を待機
+        WebDriverWait(driver, 30).until(
+            EC.url_contains('share.streamlit.io')
+        )
+        logger.info("ログイン成功")
+    
+    except Exception as e:
+        logger.error(f"ログイン中にエラーが発生: {e}")
+        # エラー時のスクリーンショットを保存
+        driver.save_screenshot('screenshot_login_error.png')
+        raise
+
+def visit_streamlit_app(url, email):
+    """
+    Streamlitアプリにアクセスしてログインを試みる
+    
+    Args:
+        url: アクセスするURL
+        email: ログインに使用するメールアドレス
+    """
+    # WebDriverのセットアップ
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    
+    # ChromeDriverの自動インストール
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    
+    try:
+        # Streamlitログインページにアクセス
         driver.get(url)
-        logger.info(f"ページタイトル: {driver.title}")
-        logger.info(f"現在のURL: {driver.current_url}")
+        logger.info(f"URLにアクセス: {url}")
         
-        # スクリーンショット撮影 (初期状態)
-        driver.save_screenshot('screenshot_initial.png')
-        logger.info("初期状態のスクリーンショット撮影")
-        
-        # プライベートアプリでログインが必要な場合
-        if email and password:
-            try:
-                # 「You do not have access to this app or it does not exist」のテキストを探す
-                access_denied_text = "You do not have access to this app or it does not exist"
-                if access_denied_text in driver.page_source:
-                    logger.info("アクセス制限メッセージを検出: 'You do not have access to this app or it does not exist'")
-                    
-                    # 'sign in' リンクの詳細なセレクタ（スクリーンショットから）
-                    sign_in_link = None
-                    try:
-                        # クラスを使用した正確なセレクタ
-                        sign_in_link = driver.find_element(By.CLASS_NAME, "text-blue-700.hover\\:text-blue-600")
-                        logger.info("sign in リンクを見つけました (クラス名で検索)")
-                    except:
-                        try:
-                            # ページ内のすべてのリンクをチェック
-                            links = driver.find_elements(By.TAG_NAME, "a")
-                            for link in links:
-                                if "sign in" in link.text.lower():
-                                    sign_in_link = link
-                                    logger.info("sign in リンクを見つけました (テキストで検索)")
-                                    break
-                        except:
-                            logger.warning("sign in リンクが見つかりませんでした")
-                    
-                    if sign_in_link:
-                        sign_in_link.click()
-                        logger.info("sign in リンクをクリックしました")
-                    else:
-                        # リンクが見つからない場合は直接ログインURLに移動
-                        logger.info("sign in リンクが見つからないため、直接ログインページにアクセスします")
-                        driver.get("https://share.streamlit.io/login")
-                    
-                    # 遷移後のスクリーンショット
-                    time.sleep(3)
-                    driver.save_screenshot('screenshot_login_page.png')
-                    logger.info(f"ログインページの現在のURL: {driver.current_url}")
-                    
-                    # ログインフォームが表示されるまで待機
-                    try:
-                        email_input = WebDriverWait(driver, 10).until(
-                            EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
-                        )
-                        email_input.clear()
-                        email_input.send_keys(email)
-                        logger.info(f"メールアドレス '{email}' を入力しました")
-                        
-                        # 入力後のスクリーンショット
-                        driver.save_screenshot('screenshot_email_entered.png')
-                        
-                        # Continueボタンを見つけてクリック
-                        # 複数の可能性のあるセレクタを試す
-                        continue_button = None
-                        selectors = [
-                            "//button[contains(text(), 'Continue')]",
-                            "//button[@type='submit']",
-                            "//button[contains(@class, 'bg-blue-700')]"
-                        ]
-                        
-                        for selector in selectors:
-                            try:
-                                continue_button = driver.find_element(By.XPATH, selector)
-                                break
-                            except:
-                                continue
-                        
-                        if continue_button:
-                            continue_button.click()
-                            logger.info("Continueボタンをクリックしました")
-                        else:
-                            logger.warning("Continueボタンが見つかりませんでした")
-                            # ボタンのHTMLを表示（デバッグ用）
-                            buttons = driver.find_elements(By.TAG_NAME, "button")
-                            if buttons:
-                                logger.info(f"ページ上のボタン数: {len(buttons)}")
-                                for i, button in enumerate(buttons):
-                                    logger.info(f"ボタン {i+1}: テキスト='{button.text}', クラス='{button.get_attribute('class')}', type='{button.get_attribute('type')}'")
-                        
-                        # パスワード入力フォームが表示されるまで待機
-                        time.sleep(5)
-                        driver.save_screenshot('screenshot_password_form.png')
-                        
-                        try:
-                            password_input = WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
-                            )
-                            password_input.clear()
-                            password_input.send_keys(password)
-                            logger.info("パスワードを入力しました")
-                            
-                            # 入力後のスクリーンショット
-                            driver.save_screenshot('screenshot_password_entered.png')
-                            
-                            # ログインボタンをクリック
-                            login_button = None
-                            login_selectors = [
-                                "//button[contains(text(), 'Sign in')]",
-                                "//button[contains(text(), 'Log in')]",
-                                "//button[@type='submit']",
-                                "//button[contains(@class, 'bg-blue-700')]"
-                            ]
-                            
-                            for selector in login_selectors:
-                                try:
-                                    login_button = driver.find_element(By.XPATH, selector)
-                                    break
-                                except:
-                                    continue
-                            
-                            if login_button:
-                                login_button.click()
-                                logger.info("ログインボタンをクリックしました")
-                            else:
-                                logger.warning("ログインボタンが見つかりませんでした")
-                                # ボタンのHTMLを表示（デバッグ用）
-                                buttons = driver.find_elements(By.TAG_NAME, "button")
-                                if buttons:
-                                    logger.info(f"ページ上のボタン数: {len(buttons)}")
-                                    for i, button in enumerate(buttons):
-                                        logger.info(f"ボタン {i+1}: テキスト='{button.text}', クラス='{button.get_attribute('class')}', type='{button.get_attribute('type')}'")
-                            
-                            # ログイン後の画面遷移を待機
-                            time.sleep(10)
-                            driver.save_screenshot('screenshot_after_login.png')
-                            logger.info(f"ログイン後のURL: {driver.current_url}")
-                            
-                            # アクセス制限メッセージがまだあるかチェック
-                            if access_denied_text in driver.page_source:
-                                logger.warning("ログイン後もアクセス制限メッセージが表示されています。ログインに失敗した可能性があります。")
-                            else:
-                                logger.info("ログイン成功: アクセス制限メッセージが表示されなくなりました。")
-                            
-                        except Exception as e:
-                            error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
-                            logger.warning(f"パスワード入力中にエラー発生: {error_message}")
-                    
-                    except Exception as e:
-                        error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
-                        logger.warning(f"メールアドレス入力中にエラー発生: {error_message}")
-                
-                else:
-                    logger.info("アクセス制限メッセージが検出されませんでした。ログイン不要かすでにログイン済みの可能性があります。")
-                
-            except Exception as e:
-                error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
-                logger.warning(f"ログイン処理中にエラー発生: {error_message}")
-                driver.save_screenshot('screenshot_login_error.png')
+        # ログイン処理
+        login_to_streamlit(driver, email)
         
         # アプリが読み込まれるまで待機
         time.sleep(15)
         
-        # ページソースのサイズを取得してログ出力
-        page_source_length = len(driver.page_source)
-        logger.info(f"ページソース長: {page_source_length} bytes")
-        
-        # 最終確認のスクリーンショット
-        driver.save_screenshot('screenshot_final.png')
-        logger.info("最終確認のスクリーンショット撮影")
-        logger.info(f"最終URL: {driver.current_url}")
-        
-        # 現在のページを再読み込み（Keep-Alive効果を最大化）
-        driver.refresh()
-        time.sleep(5)
-        driver.save_screenshot('screenshot_after_refresh.png')
-        logger.info("ページ再読み込み後のスクリーンショット撮影")
-        
-        logger.info(f"訪問成功: {url}")
-        
+        # スクリーンショットを保存
+        driver.save_screenshot('screenshot_after_login.png')
+        logger.info("ログイン後のスクリーンショットを保存")
+    
     except Exception as e:
-        error_message = str(e).split('\n')[0] if str(e) else "不明なエラー"
-        logger.error(f"エラー発生: {error_message}")
-        
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"詳細エラー情報:", exc_info=True)
-        
-        if 'driver' in locals() and driver:
-            try:
-                driver.save_screenshot('screenshot_error.png')
-                logger.info("エラー時のスクリーンショット撮影")
-            except:
-                pass
+        logger.error(f"アプリ訪問中にエラーが発生: {e}")
+        # エラー時のスクリーンショットを保存
+        driver.save_screenshot('screenshot_error.png')
+        raise
     
     finally:
-        if 'driver' in locals() and driver:
-            try:
-                driver.quit()
-                logger.info("ブラウザを閉じました")
-            except Exception as e:
-                logger.warning(f"ブラウザを閉じる際にエラーが発生: {e}")
+        driver.quit()
+        logger.info("ブラウザを閉じました")
 
 def main():
     """
-    メイン関数 - 訪問するStreamlitアプリのリストを定義し、順に訪問
+    メイン関数 - Streamlitアプリにログインを試みる
     """
-    # 環境変数からログイン情報を取得
-    email = os.environ.get('STREAMLIT_EMAIL')
-    password = os.environ.get('STREAMLIT_PASSWORD')
-    
-    # ログイン情報のチェック
-    if email and password:
-        logger.info(f"ログイン情報が設定されています (メールアドレス: {email})")
-    else:
-        logger.warning("ログイン情報が設定されていません。環境変数STREAMLIT_EMAILとSTREAMLIT_PASSWORDを確認してください。")
+    # 環境変数から認証情報を取得
+    email_config = get_email_config()
     
     # 訪問するStreamlitアプリのリスト
     streamlit_apps = [
@@ -282,15 +250,19 @@ def main():
     ]
     
     for app_url in streamlit_apps:
-        visit_streamlit_app(app_url, email, password)
+        try:
+            visit_streamlit_app(app_url, email_config['email'])
+        except Exception as e:
+            logger.error(f"{app_url}の訪問中にエラーが発生: {e}")
+        
         time.sleep(5)  # アプリ間の訪問に少し間隔を空ける
 
-if __name__ == "__main__":
-    start_time = datetime.now()
-    logger.info(f"Keep-Alive ジョブ開始: {start_time}")
+if __name__ == '__main__':
+    start_time = time.time()
+    logger.info("Keep-Alive ジョブ開始")
     
     main()
     
-    end_time = datetime.now()
+    end_time = time.time()
     duration = end_time - start_time
-    logger.info(f"Keep-Alive ジョブ終了: {end_time} (所要時間: {duration})")
+    logger.info(f"Keep-Alive ジョブ終了 (所要時間: {duration:.2f}秒)")
