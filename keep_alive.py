@@ -147,8 +147,8 @@ def parse_github_device_code(email_message):
     return None
 
 def login_to_github_if_needed(driver):
-    gh_user = os.environ.get("GIT_USERNAME", "la-concur-helper")
-    gh_pass = os.environ.get("GIT_PASSWORD", "n@pr0001")
+    gh_user = os.environ.get("GIT_USERNAME", '')
+    gh_pass = os.environ.get("GIT_PASSWORD", '')
 
     try:
         WebDriverWait(driver, 5).until(EC.url_contains("github.com/login"))
