@@ -30,13 +30,10 @@ def log_mailbox_info(mail):
     IMAPサーバー接続後の受信箱情報を出力します。
     """
     try:
-        # INBOX の選択結果
         res_select, data_select = mail.select('inbox')
         logger.debug(f"SELECT INBOX response: {res_select}, data: {data_select}")
-        # 未読件数を取得
         res_status = mail.status('INBOX', '(MESSAGES UNSEEN)')
         logger.debug(f"INBOX status: {res_status}")
-        # 利用可能なフォルダ一覧を取得
         mailboxes = mail.list()
         logger.debug(f"Available mailboxes: {mailboxes}")
     except Exception as e:
@@ -99,7 +96,6 @@ def login_imap(email_config):
 
 def extract_streamlit_code(mail, max_wait_time=120):
     start_time = time.time()
-    # デバッグ: メールボックス情報をログ出力
     log_mailbox_info(mail)
     mail.select('inbox')
     while time.time() - start_time < max_wait_time:
@@ -167,160 +163,3 @@ def search_for_github_device_code_in_messages(mail, message_ids):
             logger.info("GitHubデバイス認証メールを検出 (UNSEEN)")
             return parse_github_device_code(email_message)
     return None
-
-
-def parse_github_device_code(email_message):
-    for part in email_message.walk():
-        if part.get_content_type() in ('text/plain', 'text/html'):
-            body = part.get_payload(decode=True).decode(errors='replace').lower()
-            m = re.search(r'(?:device\s+)?verification code:\s*([0-9]{6})', body)
-            if m:
-                code = m.group(1)
-                logger.info(f"GitHubデバイス認証コードを取得: {code}")
-                return code
-    return None
-
-
-def login_to_github_if_needed(driver):
-    gh_user = os.environ.get("GIT_USERNAME", '')
-    gh_pass = os.environ.get("GIT_PASSWORD", '')
-
-    try:
-        WebDriverWait(driver, 5).until(EC.url_contains("github.com/login"))
-        logger.info("Detected GitHub login page. Attempting to sign in...")
-        username_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "login"))
-        )
-        username_input.clear()
-        username_input.send_keys(gh_user)
-        logger.debug(f"GitHub username '{gh_user}' を入力")
-        password_input = driver.find_element(By.NAME, "password")
-        password_input.clear()
-        password_input.send_keys(gh_pass)
-        logger.debug("GitHub パスワードを入力 (マスク)")
-        sign_in_button = driver.find_element(By.NAME, "commit")
-        sign_in_button.click()
-        logger.info("GitHub 'Sign in' ボタンをクリック")
-        WebDriverWait(driver, 15).until_not(EC.url_contains("github.com/login"))
-        logger.info("GitHubログイン処理完了(または次ステップに遷移)")
-        handle_github_device_verification(driver)
-    except Exception as e:
-        logger.info(f"GitHub login page was not found or not needed: {e}")
-
-
-def handle_github_device_verification(driver):
-    try:
-        otp_field = WebDriverWait(driver, 3).until(
-            EC.presence_of_element_located((By.NAME, "otp"))
-        )
-        logger.info("Detected GitHub Device Verification page. Retrieving code from email...")
-        email_config = get_email_config()
-        mail = login_imap(email_config)
-        device_code = extract_github_device_code(mail)
-        if not device_code:
-            raise ValueError("GitHubデバイス認証コードの取得に失敗しました")
-        otp_field.clear()
-        otp_field.send_keys(device_code)
-        logger.info(f"GitHub デバイス認証コードを入力: {device_code}")
-        try:
-            verify_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Verify')]")
-            verify_btn.click()
-            logger.info("GitHub Device Verification: Verifyボタンをクリック")
-        except NoSuchElementException:
-            logger.info("Verifyボタンが見つからなかったため、デバイス認証は不要と判断します。")
-            return
-        WebDriverWait(driver, 30).until_not(EC.url_contains("challenge"))
-        logger.info("GitHubデバイス認証が完了しました。")
-    except NoSuchElementException:
-        logger.info("GitHubデバイス認証ページが見つからなかったため、認証は不要です。")
-    except Exception as e:
-        logger.error(f"Device verification中に予期せぬエラーが発生: {e}")
-
-
-def login_to_streamlit(driver, email):
-    try:
-        sign_in_btn = WebDriverWait(driver, 30).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign in')]"))
-        )
-        sign_in_btn.click()
-        logger.info("Sign in ボタンをクリック")
-        mail_field = WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'][name='email']"))
-        )
-        mail_field.clear()
-        mail_field.send_keys(email)
-        logger.info(f"メール '{email}' を入力")
-        cont_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Continue')]")
-        logger.info("ワンタイムコード送信用の Continueボタンをクリック(一度だけ)")
-        cont_btn.click()
-        time.sleep(2)
-        code_inputs = WebDriverWait(driver, 30).until(
-            EC.presence_of_all_elements_located((By.XPATH, "//input[@maxlength='1' and @inputmode='numeric']"))
-        )
-        email_config = get_email_config()
-        mail = login_imap(email_config)
-        st_code = extract_streamlit_code(mail)
-        if not st_code:
-            raise ValueError("Streamlitワンタイムコードを取得できませんでした")
-        if len(code_inputs) == 6:
-            for i, digit in enumerate(st_code):
-                code_inputs[i].send_keys(digit)
-            logger.info(f"ワンタイムコードを入力: {st_code}")
-        else:
-            raise ValueError(f"入力フィールド数が不正: {len(code_inputs)}")
-        login_to_github_if_needed(driver)
-        driver.get("https://concur-dev-support.streamlit.app/")
-        logger.info("アプリURLに再アクセスして、実際のアプリ画面を表示")
-        WebDriverWait(driver, 60).until(EC.url_contains("streamlit.app"))
-        logger.info("Streamlitログイン成功")
-    except Exception as e:
-        logger.error(f"ログイン中にエラー: {e}")
-        driver.save_screenshot('screenshot_login_error.png')
-        raise
-
-
-def visit_streamlit_app(url, email):
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--lang=ja-JP')
-
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    try:
-        driver.get(url)
-        logger.info(f"URLにアクセス: {url}")
-        driver.save_screenshot("debug_screenshot_0_initial.png")
-        login_to_streamlit(driver, email)
-        time.sleep(5)
-        driver.save_screenshot('screenshot_after_login.png')
-        logger.info("ログイン後のスクリーンショットを保存")
-    except Exception as e:
-        logger.error(f"{url} の訪問中にエラー: {e}")
-        driver.save_screenshot('screenshot_error.png')
-        raise
-    finally:
-        driver.quit()
-        logger.info("ブラウザを閉じました")
-
-
-def main():
-    email_config = get_email_config()
-    target_email = email_config['email']
-    if not target_email:
-        raise ValueError("STREAMLIT_EMAIL が設定されていないため、メールアドレス不明")
-    streamlit_apps = ["https://concur-dev-support.streamlit.app/"]
-    for app_url in streamlit_apps:
-        try:
-            visit_streamlit_app(app_url, target_email)
-        except Exception as e:
-            logger.error(f"{app_url} の訪問中にエラー: {e}")
-        time.sleep(5)
-
-if __name__ == '__main__':
-    start_time = time.time()
-    logger.info("Keep-Alive ジョブ開始")
-    main()
-    end_time = time.time()
-    logger.info(f"Keep-Alive ジョブ終了 (所要時間: {end_time - start_time:.2f}秒)")
