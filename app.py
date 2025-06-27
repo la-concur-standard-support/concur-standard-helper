@@ -30,7 +30,7 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 FAQ_INDEX_NAME = "concur-index-faq"  
 FAQ_NAMESPACE  = "demo-html"
 
-SUMMARY_INDEX_NAME = "concur-index-sammary"  
+SUMMARY_INDEX_NAME = "concur-index-summary"  
 SUMMARY_NAMESPACE  = "demo-html"
 
 FULL_INDEX_NAME = "concur-index-full"      
