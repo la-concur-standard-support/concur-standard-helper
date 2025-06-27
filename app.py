@@ -27,13 +27,13 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 # --------------------------------------------------
 # インデックス・ガイド設定
 # --------------------------------------------------
-FAQ_INDEX_NAME = "concur-index3"  
+FAQ_INDEX_NAME = "concur-index-faq"  
 FAQ_NAMESPACE  = "demo-html"
 
-SUMMARY_INDEX_NAME = "concur-index2"  
+SUMMARY_INDEX_NAME = "concur-index-sammary"  
 SUMMARY_NAMESPACE  = "demo-html"
 
-FULL_INDEX_NAME = "concur-index"      
+FULL_INDEX_NAME = "concur-index-full"      
 FULL_NAMESPACE  = "demo-html"
 
 WORKFLOW_GUIDES = [
