@@ -27,14 +27,14 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1-aws")
 # --------------------------------------------------
 # インデックス・ガイド設定
 # --------------------------------------------------
-FAQ_INDEX_NAME = "concur-index-faq"  
-FAQ_NAMESPACE  = "demo-html"
-
 SUMMARY_INDEX_NAME = "concur-index-summary"  
 SUMMARY_NAMESPACE  = "demo-html"
 
 FULL_INDEX_NAME = "concur-index-full"      
 FULL_NAMESPACE  = "demo-html"
+
+FAQ_INDEX_NAME = "concur-index-faq"  
+FAQ_NAMESPACE  = "demo-html"
 
 WORKFLOW_GUIDES = [
     "ワークフロー（概要）(2023年10月14日版)",
@@ -68,7 +68,7 @@ custom_prompt = PromptTemplate(
 )
 
 def main():
-    st.title("SAP Concur 開発支援")
+    st.title("SAP Concur Standard 開発支援")
 
     # --------------------------------------------------
     # セッション初期化
@@ -85,15 +85,6 @@ def main():
     # --------------------------------------------------
     pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
     embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
-
-    # FAQインデックス
-    faq_index = pc.Index(FAQ_INDEX_NAME)
-    docsearch_faq = PineconeVectorStore(
-        embedding=embeddings,
-        index=faq_index,
-        namespace=FAQ_NAMESPACE,
-        text_key="chunk_text"
-    )
 
     # 要約インデックス
     sum_index = pc.Index(SUMMARY_INDEX_NAME)
@@ -113,6 +104,15 @@ def main():
         text_key="chunk_text"
     )
 
+    # FAQインデックス
+    faq_index = pc.Index(FAQ_INDEX_NAME)
+    docsearch_faq = PineconeVectorStore(
+        embedding=embeddings,
+        index=faq_index,
+        namespace=FAQ_NAMESPACE,
+        text_key="chunk_text"
+    )
+
     chat_llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4",
@@ -125,7 +125,7 @@ def main():
     st.sidebar.header("設定ガイドのリスト")
     st.sidebar.markdown(
         """
-        <a href="https://la-concur-helper.github.io/concur-docs/index.htm" target="_blank">
+        <a href="https://la-concur-helper.github.io/concur-standard-docs/index.htm" target="_blank">
             <button style="font-size: 1rem; padding: 0.5em 1em; color: black;">
                 標準ガイドリスト
             </button>
