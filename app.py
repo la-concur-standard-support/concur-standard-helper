@@ -42,7 +42,7 @@ WORKFLOW_GUIDES = [
     "ワークフロー（原価対象の承認者)(2023年8月25日版)",
     "ワークフロー（メール通知）(2020年3月24日版)"
 ]
-WORKFLOW_OVERVIEW_URL = "https://la-concur-helper.github.io/concur-docs/Exp_SG_Workflow_General-jp.html#_Toc150956193"
+WORKFLOW_OVERVIEW_URL = "https://la-concur-standard-support.github.io/concur-standard-docs/hoge.html"
 
 CUSTOM_PROMPT_TEMPLATE = """あなたはConcurドキュメントの専門家です。
 以下のドキュメント情報(検索結果)とユーザーの質問を踏まえて、
@@ -125,7 +125,7 @@ def main():
     st.sidebar.header("設定ガイドのリスト")
     st.sidebar.markdown(
         """
-        <a href="https://la-concur-helper.github.io/concur-standard-docs/index.htm" target="_blank">
+        <a href="https://la-concur-standard-support.github.io/concur-standard-docs/index.htm" target="_blank">
             <button style="font-size: 1rem; padding: 0.5em 1em; color: black;">
                 標準ガイドリスト
             </button>
